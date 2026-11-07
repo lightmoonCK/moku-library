@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.js  text
+*.css text
+*.html text

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>墨库 MOKU · 全网电子书检索与 TXT 导出</title>
+<meta name="description" content="墨库：聚合公开书源，一次检索，直接导出干净的 TXT 电子书。" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="site-head">
+  <a class="brand" href="#top" aria-label="墨库首页">
+    <span class="seal" aria-hidden="true">墨</span>
+    <span class="brand-text">
+      <b>墨库</b>
+      <small>MOKU LIBRARY</small>
+    </span>
+  </a>
+
+  <nav class="nav" aria-label="主导航">
+    <a href="#searchForm" class="nav-link is-active"><i>01</i>检索</a>
+    <button type="button" class="nav-link" id="openSources"><i>02</i>书源</button>
+    <a href="#about" class="nav-link"><i>03</i>关于</a>
+  </nav>
+
+  <div class="head-status">
+    <span class="pulse" aria-hidden="true"></span>
+    <span>47 个书源在线</span>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero" id="hero">
+    <div class="hero-grid">
+      <div class="hero-main">
+        <p class="kicker">OPEN SHELF · 公开书库 · NO.02</p>
+        <h1>把想读的书，<br>从<span class="ink">全网</span>找回来。</h1>
+        <p class="lede">一次检索，聚合 47 个公开书源。看中了哪一本，就地导出干净的 TXT，无广告、无捆绑、无需登录。</p>
+
+        <form class="catalog-card" id="searchForm" autocomplete="off" role="search">
+          <span class="card-tab" aria-hidden="true">SEARCH / 检索</span>
+          <div class="card-head">
+            <span class="card-no">索书号 / MOKU–2026–0001</span>
+            <span class="card-state">INDEX CARD</span>
+          </div>
+
+          <div class="card-field">
+            <label for="q">书名 · 作者 · 你记得的那句话</label>
+            <div class="field-row">
+              <input id="q" name="q" type="search" placeholder="例如：三体、东野圭吾、明朝" maxlength="48" autocomplete="off" spellcheck="false" aria-label="搜索电子书" />
+              <button type="submit" class="search-btn">
+                <span>检索</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="card-foot">
+            <span class="try">试试</span>
+            <div class="hot-chips">
+              <button type="button" data-q="三体">三体</button>
+              <button type="button" data-q="东野圭吾">东野圭吾</button>
+              <button type="button" data-q="明朝">明朝</button>
+              <button type="button" data-q="三毛">三毛</button>
+              <button type="button" data-q="科幻">科幻</button>
+            </div>
+            <span class="kbd">按 <kbd>/</kbd> 聚焦</span>
+          </div>
+        </form>
+      </div>
+
+      <aside class="hero-side" aria-label="站内数据">
+        <div class="stat">
+          <b>12,480</b>
+          <span>部书目收录</span>
+        </div>
+        <div class="stat">
+          <b>47</b>
+          <span>个公开书源</span>
+        </div>
+        <div class="stat">
+          <b>3<em>s</em></b>
+          <span>平均导出时长</span>
+        </div>
+        <p class="side-label" aria-hidden="true">SEARCH · THE · WHOLE · SHELF</p>
+      </aside>
+    </div>
+
+    <div class="ticker" aria-label="正在聚合的书源">
+      <div class="ticker-track">
+        <span>豆瓣读书</span><i>·</i><span>微信读书</span><i>·</i><span>起点中文网</span><i>·</i><span>晋江文学城</span><i>·</i><span>掌阅</span><i>·</i><span>纵横中文网</span><i>·</i><span>17K 小说网</span><i>·</i><span>番茄小说</span><i>·</i><span>知乎书单</span><i>·</i><span>鸠摩搜书</span><i>·</i><span>孔夫子旧书网</span><i>·</i><span>超星数字图书馆</span><i>·</i>
+        <span>豆瓣读书</span><i>·</i><span>微信读书</span><i>·</i><span>起点中文网</span><i>·</i><span>晋江文学城</span><i>·</i><span>掌阅</span><i>·</i><span>纵横中文网</span><i>·</i><span>17K 小说网</span><i>·</i><span>番茄小说</span><i>·</i><span>知乎书单</span><i>·</i><span>鸠摩搜书</span><i>·</i><span>孔夫子旧书网</span><i>·</i><span>超星数字图书馆</span><i>·</i>
+      </div>
+    </div>
+  </section>
+
+  <section class="results" id="results" hidden>
+    <div class="results-inner">
+      <div class="results-head">
+        <div class="query-summary">
+          <p class="kicker">SEARCH RESULT</p>
+          <h2>关于「<span id="queryText"></span>」</h2>
+          <p class="summary" id="summaryText" aria-live="polite"></p>
+        </div>
+        <div class="sort" role="group" aria-label="结果排序">
+          <span class="sort-label">SORT</span>
+          <button type="button" class="sort-btn is-active" data-sort="relevance">相关度</button>
+          <button type="button" class="sort-btn" data-sort="rating">评分</button>
+          <button type="button" class="sort-btn" data-sort="words">字数</button>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <div class="filters" id="filters" role="group" aria-label="分类筛选"></div>
+        <span class="filter-count" id="filterCount"></span>
+      </div>
+
+      <div class="result-list" id="resultList"></div>
+    </div>
+  </section>
+
+  <section class="about" id="about">
+    <div class="about-inner">
+      <p class="kicker">HOW IT WORKS · 使用方式</p>
+      <div class="steps">
+        <div class="step">
+          <span class="step-no">01</span>
+          <h3>一次检索</h3>
+          <p>输入书名、作者或任何关键词，墨库同时向 47 个公开书源发起查询并自动去重。</p>
+        </div>
+        <div class="step">
+          <span class="step-no">02</span>
+          <h3>挑一个版本</h3>
+          <p>按评分、字数或相关度排序，比较不同书源的收录情况，选最干净的那一版。</p>
+        </div>
+        <div class="step">
+          <span class="step-no">03</span>
+          <h3>导出 TXT</h3>
+          <p>点击下载即生成 UTF-8 编码的 TXT，带书名、作者、目录与正文，随取随读。</p>
+        </div>
+      </div>
+      <p class="about-note">墨库本身不存储任何书籍文件。检索结果与下载内容均为演示数据，正式运营请接入合法授权的书源接口。</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="foot-left">
+    <span class="seal seal-sm" aria-hidden="true">墨</span>
+    <span>墨库 MOKU · 为读而建</span>
+  </div>
+  <p class="foot-note">演示版本 · 书目索引为示例数据，TXT 正文为公开试读片段</p>
+  <div class="foot-links">
+    <button type="button" id="footSources">书源说明</button>
+    <span>© 2026</span>
+  </div>
+</footer>
+
+<!-- 详情弹窗 -->
+<div class="modal" id="bookModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-panel">
+    <button type="button" class="modal-close" data-close aria-label="关闭">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="modal-cover" id="modalCover"></div>
+    <div class="modal-body">
+      <p class="kicker" id="modalCat">NOVEL</p>
+      <h2 id="modalTitle">书名</h2>
+      <p class="modal-author" id="modalAuthor">作者</p>
+      <p class="modal-blurb" id="modalBlurb"></p>
+      <dl class="modal-facts">
+        <div><dt>字数</dt><dd id="modalWords"></dd></div>
+        <div><dt>评分</dt><dd id="modalRating"></dd></div>
+        <div><dt>文件</dt><dd id="modalSize"></dd></div>
+        <div><dt>收录</dt><dd id="modalYear"></dd></div>
+      </dl>
+      <div class="modal-sources">
+        <span class="modal-src-label">可用书源</span>
+        <div class="src-chips" id="modalSources"></div>
+      </div>
+      <button type="button" class="download-btn modal-dl" id="modalDownload">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
+        下载 TXT
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 书源面板 -->
+<div class="modal" id="sourcesModal" role="dialog" aria-modal="true" aria-labelledby="sourcesTitle" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-panel modal-panel-flat">
+    <button type="button" class="modal-close" data-close aria-label="关闭">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="modal-body">
+      <p class="kicker">SOURCES · 36 SHOWN / 47 ONLINE</p>
+      <h2 id="sourcesTitle">墨库的书源</h2>
+      <p class="modal-blurb">检索时同时请求下列公开书源，命中结果按书名与作者去重，保留文件最完整的一版。</p>
+      <div class="source-grid" id="sourceGrid"></div>
+      <p class="modal-foot-note">书源状态每次检索时实时探测；失效书源会自动降级，不影响返回结果。</p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="toast-dot" aria-hidden="true"></span>
+  <span id="toastText">已开始下载</span>
+</div>
+
+<script src="books.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

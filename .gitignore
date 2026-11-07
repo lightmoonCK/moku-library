@@ -1,0 +1,13 @@
+# 打包文件
+moku-site.zip
+*.zip
+
+# 本地工具缓存
+.trae-html-share-packages/
+.edge/
+.vscode/
+.DS_Store
+
+# 临时文件
+*.log
+*.tmp
