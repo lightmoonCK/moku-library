@@ -1,4 +1,4 @@
-/* 墨库 · 检索与 TXT 导出（纯前端演示版） */
+/* 墨库 · 公开书源检索与 TXT 导出 */
 (function () {
   "use strict";
 
@@ -11,6 +11,8 @@
     resultList: $("#resultList"),
     queryText: $("#queryText"),
     summary: $("#summaryText"),
+    sourceStatus: $("#sourceStatus"),
+    offlineNote: $("#offlineNote"),
     filters: $("#filters"),
     filterCount: $("#filterCount"),
     toast: $("#toast"),
@@ -20,99 +22,139 @@
     sourceGrid: $("#sourceGrid")
   };
 
-  const HOT = ["三体", "东野圭吾", "明朝", "三毛", "科幻"];
-
-  const SOURCES = [
-    "豆瓣读书", "微信读书", "掌阅", "起点中文网", "晋江文学城", "纵横中文网",
-    "17K小说网", "番茄小说", "知乎书单", "鸠摩搜书", "孔夫子旧书网", "超星数字图书馆",
-    "中国国家数字图书馆", "书格", "古登堡计划", "互联网档案馆", "Z-Library", "书香中国",
-    "京东读书", "当当云阅读", "咪咕阅读", "塔读文学", "长佩文学", "豆瓣阅读",
-    "Kindle 商店", "得到", "三联中读", "理想国", "微信听书", "华为阅读",
-    "百度阅读", "多看阅读", "QQ阅读", "网易云阅读", "纵横书城", "潇湘书院"
-  ];
-  const OFFLINE_SOURCES = ["Kindle 商店", "当当云阅读", "网易云阅读"];
-
-  const CHAPTERS = [
-    "序章", "第一章　旧事", "第二章　远行", "第三章　相遇",
-    "第四章　风雨", "第五章　抉择", "第六章　归途", "尾声"
+  /* 与 functions/api/search.js 保持一致的书源清单 */
+  const SOURCE_LIST = [
+    { id: "gutenberg", name: "Project Gutenberg", site: "https://www.gutenberg.org", note: "公共领域全文 · 可直接下载 TXT" },
+    { id: "openlibrary", name: "Open Library", site: "https://openlibrary.org", note: "全球书目元数据 · 含馆藏与版本" },
+    { id: "archive", name: "Internet Archive", site: "https://archive.org", note: "扫描本 OCR 全文 · 覆盖中英文" },
+    { id: "googlebooks", name: "Google Books", site: "https://books.google.com", note: "书目、简介与读者评分" }
   ];
 
-  const EXCERPTS = {
-    小说: "院子里的槐树落了一地花。\n\n她坐在门槛上，把那双磨破的布鞋翻过来又翻过去，像是在数一数这些年走过的路。远处传来火车的声音，穿过麦田，穿过黄昏，穿过所有还没来得及说出口的话。\n\n“人这一辈子，能记住的其实就那么几件事。”父亲说这句话的时候，正把最后一袋粮食扛上肩。天就要黑了，炊烟一层层压下来，把整个村庄罩在一层温柔的灰里。",
-    文学: "我一直记得那个下午的光。它从窗棂的缝隙里斜进来，落在旧木桌上，把灰尘照得像金色的雪。\n\n母亲在厨房里切菜，刀与砧板的声音一下一下，很稳。她说，日子就是这样，一刀一刀切下去，切到最后也就过完了。\n\n那时我还不懂这句话。后来我走得很远，在许多个陌生的房间里醒来，才慢慢明白：所谓故乡，不过是一盏总为你亮着的灯。",
-    科幻: "警报在第三轮循环时才被听见。\n\n观测站浮在黑暗里，像一枚被遗忘的针。屏幕上，那颗行星的轮廓正在缓慢变化——不是自转，不是潮汐，而是一种有节奏的呼吸。\n\n“它在看我们。”值班员低声说。\n\n没有人回答。所有人都在同一时刻意识到，人类并不是这片宇宙里第一个抬头望向星空的文明，也未必是最后一个。倒计时开始了，而他们只有七十二小时来决定，要不要回应。",
-    悬疑: "雨从傍晚开始下，一直没有停。\n\n现场的灯亮得刺眼，警戒线在风里轻轻晃动。她蹲下去，看见地板上那道几乎被擦掉的血痕，形状像一个没有写完的字。\n\n“三年前也是这样的天气。”同事在她身后说。\n\n她没有回头。她知道，有些案子从来没有真正结束，只是暂时安静下来，等待下一个雨夜。",
-    历史: "那一年，京城下了很大的雪。\n\n年轻的官员站在午门外，把手缩进袖子里，听候传唤。他怀里揣着一份奏疏，写了整整三个月，字斟句酌，删了又改。他知道，递上去的那一刻，自己的仕途乃至性命，就都交给了一个不可预测的答案。\n\n宫门开了一条缝，内侍的声音又细又长：“宣——”\n\n他深吸一口气，雪落在肩上，很快就化了。",
-    社科: "所有大规模的人类协作，最终都建立在某种共同想象之上。\n\n货币之所以有价值，不是因为金属，而是因为所有人都相信它有价值；国家之所以存在，不是因为城墙，而是因为无数人愿意承认同一条边界。\n\n当这种相信被建立起来，陌生人就能一起修路、纳税、作战、贸易。文明的力量，并不在于个体的强壮，而在于虚构故事被亿万人同时相信的程度。",
-    玄幻: "山门在云上。\n\n少年背着剑，一步一步走上石阶。雾气从脚边漫过去，带着松脂和雷火的气味。他数不清走了多少级，只记得每一级台阶上都刻着一个名字，那是前人留下的路。\n\n峰顶有风。风里有声音在问他：你是谁，为何而来。\n\n他握住剑柄，答得很轻，却很稳：“我来取一个答案。”"
-  };
+  const HOT = ["三体", "东野圭吾", "红楼梦", "三毛", "science fiction"];
 
   const state = {
     query: "",
-    results: [],
+    books: [],
     filter: "全部",
     sort: "relevance",
     current: null,
-    loading: false
+    loading: false,
+    offline: false,
+    status: [],
+    took: 0
   };
 
-  let loadTimer = null;
-  let progressTimer = null;
   let toastTimer = null;
+  let progressTimer = null;
 
   /* ---------- helpers ---------- */
   const esc = (str) =>
-    String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    String(str == null ? "" : str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   const pad2 = (n) => String(n).padStart(2, "0");
-
-  const wordsText = (words) => (words / 10000).toFixed(1) + " 万字";
-
-  const fileSize = (words) => {
-    const kb = Math.round((words * 3.05) / 1024);
-    return kb >= 1000 ? (kb / 1000).toFixed(1) + " MB" : kb + " KB";
-  };
 
   const nowText = () => {
     const d = new Date();
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   };
 
-  const scoreOf = (book, q) => {
-    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
-    let s = book.rating * 2;
-    tokens.forEach((t) => {
-      if (book.title.toLowerCase() === t) s += 90;
-      else if (book.title.toLowerCase().includes(t)) s += 48;
-      if (book.author.toLowerCase().includes(t)) s += 34;
-      if (book.cat.toLowerCase().includes(t)) s += 20;
-      if (book.tags.some((tag) => tag.toLowerCase().includes(t))) s += 14;
-      if (String(book.year).includes(t)) s += 8;
-    });
-    return s;
-  };
-
-  const matchBook = (book, q) => {
-    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
-    const hay = [book.title, book.author, book.cat, book.year, ...book.tags].join(" ").toLowerCase();
-    return tokens.every((t) => hay.includes(t));
+  const hashPalette = (str) => {
+    let h = 0;
+    for (let i = 0; i < String(str).length; i++) h = (h * 31 + String(str).charCodeAt(i)) % 8;
+    return h + 1;
   };
 
   function toast(msg) {
     els.toastText.textContent = msg;
     els.toast.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2800);
+    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 3200);
   }
 
+  function fetchWithTimeout(url, ms) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+
+  /* ---------- 数据归一化 ---------- */
+  function prepareRemote(raw) {
+    return {
+      id: raw.id || raw.title,
+      title: raw.title || "未命名",
+      author: raw.author || "佚名",
+      year: raw.year || null,
+      cat: raw.cat || "其他",
+      tags: Array.isArray(raw.tags) ? raw.tags.filter(Boolean) : [],
+      rating: typeof raw.rating === "number" ? raw.rating : null,
+      pages: raw.pages || null,
+      popularity: raw.popularity || 0,
+      blurb: raw.blurb || "",
+      cover: raw.cover || null,
+      txt: raw.txt || null,
+      link: raw.link || null,
+      sources: Array.isArray(raw.sources) ? raw.sources : [],
+      p: hashPalette(raw.title || ""),
+      demo: false
+    };
+  }
+
+  function prepareLocal(raw) {
+    return {
+      id: raw.id,
+      title: raw.title,
+      author: raw.author,
+      year: raw.year || null,
+      cat: raw.cat || "其他",
+      tags: raw.tags || [],
+      rating: typeof raw.rating === "number" ? raw.rating : null,
+      pages: null,
+      popularity: 0,
+      blurb: raw.blurb || "",
+      cover: null,
+      txt: null,
+      link: null,
+      sources: (raw.sources || []).map((name) => ({ name: name, site: null })),
+      p: raw.p || hashPalette(raw.title || ""),
+      demo: true,
+      related: !!raw.related
+    };
+  }
+
+  /* ---------- 排序与打分 ---------- */
+  const scoreOf = (book, q) => {
+    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+    let s = (book.rating || 0) * 2;
+    tokens.forEach((t) => {
+      const title = book.title.toLowerCase();
+      if (title === t) s += 90;
+      else if (title.includes(t)) s += 48;
+      if (book.author.toLowerCase().includes(t)) s += 34;
+      if (book.cat.toLowerCase().includes(t)) s += 20;
+      if (book.tags.some((tag) => tag.toLowerCase().includes(t))) s += 14;
+      if (book.year && String(book.year).includes(t)) s += 8;
+    });
+    if (book.txt) s += 10;
+    return s;
+  };
+
+  const byRelevance = (q) => (a, b) => scoreOf(b, q) - scoreOf(a, q);
+  const byRating = (a, b) => (b.rating == null ? -1 : b.rating) - (a.rating == null ? -1 : a.rating);
+  const byPopularity = (a, b) => (b.popularity || 0) - (a.popularity || 0);
+
+  /* ---------- 封面 ---------- */
   function coverHTML(book, cls = "") {
+    const img = book.cover
+      ? `<img src="${esc(book.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`
+      : "";
     return `<div class="cover ${cls}" data-p="${book.p}">
+      ${img}
       <span class="cover-title">${esc(book.title)}</span>
       <span class="cover-author">${esc(book.author)}</span>
     </div>`;
   }
 
-  /* ---------- loading ---------- */
+  /* ---------- 检索中状态 ---------- */
   function showLoading() {
     const sk = `
       <div class="sk-row">
@@ -126,30 +168,42 @@
     els.resultList.innerHTML = `
       <div class="loading">
         <div class="loading-line">
-          <span class="loading-src">正在连接 豆瓣读书…</span>
-          <span class="loading-count">已聚合 0 / 47</span>
+          <span class="loading-src">正在连接 ${esc(SOURCE_LIST[0].name)}…</span>
+          <span class="loading-count">${SOURCE_LIST.length} 个公开书源并行检索</span>
         </div>
         <div class="loading-bar"><i></i></div>
         ${sk.repeat(4)}
       </div>`;
 
     let step = 0;
-    const live = ["豆瓣读书", "微信读书", "起点中文网", "掌阅", "鸠摩搜书", "晋江文学城", "超星数字图书馆", "番茄小说"];
     clearInterval(progressTimer);
     progressTimer = setInterval(() => {
-      step += 3;
-      const srcEl = $(".loading-src", els.resultList);
-      const cntEl = $(".loading-count", els.resultList);
-      if (!srcEl || !cntEl) return clearInterval(progressTimer);
-      srcEl.textContent = "正在连接 " + live[(step / 3) % live.length] + "…";
-      cntEl.textContent = `已聚合 ${Math.min(step, 47)} / 47`;
-      if (step >= 47) clearInterval(progressTimer);
-    }, 110);
+      step += 1;
+      const el = $(".loading-src", els.resultList);
+      if (!el) return clearInterval(progressTimer);
+      const src = SOURCE_LIST[step % SOURCE_LIST.length];
+      el.textContent = "正在连接 " + src.name + "…";
+    }, 900);
   }
 
-  /* ---------- render ---------- */
+  /* ---------- 结果渲染 ---------- */
+  function renderSourceStatus() {
+    if (!els.sourceStatus) return;
+    if (!state.status.length) {
+      els.sourceStatus.innerHTML = "";
+      return;
+    }
+    els.sourceStatus.innerHTML = state.status
+      .map((s) => {
+        const cls = s.status === "ok" ? "is-ok" : s.status === "timeout" ? "is-warn" : "is-off";
+        const label = s.status === "ok" ? s.count + " 条" : s.status === "timeout" ? "超时" : "不可用";
+        return `<span class="src-state ${cls}"><i></i>${esc(s.name)}<em>${esc(label)}</em></span>`;
+      })
+      .join("");
+  }
+
   function renderResults() {
-    const matched = state.results;
+    const matched = state.books;
     const cats = ["全部", ...Array.from(new Set(matched.map((b) => b.cat)))];
 
     els.filters.innerHTML = cats
@@ -161,9 +215,9 @@
 
     let view = state.filter === "全部" ? matched.slice() : matched.filter((b) => b.cat === state.filter);
 
-    if (state.sort === "rating") view.sort((a, b) => b.rating - a.rating);
-    else if (state.sort === "words") view.sort((a, b) => b.words - a.words);
-    else view.sort((a, b) => scoreOf(b, state.query) - scoreOf(a, state.query));
+    if (state.sort === "rating") view.sort(byRating);
+    else if (state.sort === "popularity") view.sort(byPopularity);
+    else view.sort(byRelevance(state.query));
 
     els.filterCount.textContent = `显示 ${view.length} / ${matched.length} 条`;
 
@@ -183,6 +237,20 @@
     els.resultList.innerHTML = view
       .map((book, i) => {
         const idx = String(i + 1).padStart(3, "0");
+        const facts = [];
+        if (book.pages) facts.push(book.pages + " 页");
+        facts.push(book.txt ? "可下载全文" : "仅书目信息");
+        facts.push(book.sources.length + " 个书源");
+
+        const chips = book.sources.slice(0, 3)
+          .map((s) => `<span class="src-chip">${esc(s.name)}</span>`)
+          .join("");
+        const more = book.sources.length > 3 ? `<span class="src-chip">+${book.sources.length - 3}</span>` : "";
+
+        const ratingCell = book.rating
+          ? `<b>${book.rating.toFixed(1)}</b><span>评分</span>`
+          : `<b class="score-na">—</b><span>暂无评分</span>`;
+
         return `
         <article class="result" data-id="${esc(book.id)}" style="--i:${Math.min(i, 11)}">
           <span class="idx">${idx}</span>
@@ -192,26 +260,18 @@
               <h3>${esc(book.title)}</h3>
               <span class="cat-tag">${esc(book.cat)}</span>
               ${book.related ? '<span class="rel-tag">相关</span>' : ""}
-              <span class="year">${esc(book.year)}</span>
+              ${book.year ? `<span class="year">${esc(book.year)}</span>` : ""}
             </div>
             <p class="result-meta">
-              <b>${esc(book.author)}</b><span class="dot">·</span>
-              约 ${wordsText(book.words)}<span class="dot">·</span>
-              TXT ${fileSize(book.words)}<span class="dot">·</span>
-              ${book.sources.length} 个书源
+              <b>${esc(book.author)}</b>${facts.map((f) => `<span class="dot">·</span>${esc(f)}`).join("")}
             </p>
-            <div class="src-chips">
-              ${book.sources.map((s) => `<span class="src-chip">${esc(s)}</span>`).join("")}
-            </div>
+            <div class="src-chips">${chips}${more}</div>
           </div>
-          <div class="score">
-            <b>${book.rating.toFixed(1)}</b>
-            <span>评分</span>
-          </div>
+          <div class="score">${ratingCell}</div>
           <div class="result-actions">
             <button type="button" class="download-btn" data-dl="${esc(book.id)}">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
-              下载 TXT
+              ${book.txt ? "下载 TXT" : "导出书目"}
             </button>
           </div>
         </article>`;
@@ -219,47 +279,67 @@
       .join("");
   }
 
-  /* ---------- search ---------- */
-  function scrollToResults() {
-    const top = els.results.getBoundingClientRect().top + window.scrollY - 88;
-    window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+  function setSummary() {
+    if (state.offline) {
+      els.offlineNote.hidden = false;
+      els.offlineNote.textContent =
+        "公开书源暂时连不上（校园网 / 代理或书源限流），已切换到内置离线书架，仅供预览。";
+      els.summary.textContent = `离线书架 ${state.books.length} 条演示书目 · 未连接公开书源`;
+      return;
+    }
+    els.offlineNote.hidden = true;
+    const ok = state.status.filter((s) => s.status === "ok").length;
+    const fullText = state.books.filter((b) => b.txt).length;
+    els.summary.textContent = `找到 ${state.books.length} 条结果 · 用时 ${state.took || 0} 秒 · ${ok} / ${state.status.length} 个书源可用${
+      fullText ? ` · ${fullText} 条可下载全文` : ""
+    }`;
   }
 
-  function finishSearch() {
-    state.loading = false;
-    const q = state.query;
-    const direct = BOOKS.filter((b) => matchBook(b, q));
+  /* ---------- 本地离线书架 ---------- */
+  const SHELF = typeof BOOKS !== "undefined" && Array.isArray(BOOKS) ? BOOKS : [];
+
+  const matchBook = (book, q) => {
+    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const hay = [book.title, book.author, book.cat, book.year, ...(book.tags || [])].join(" ").toLowerCase();
+    return tokens.every((t) => hay.includes(t));
+  };
+
+  function searchShelf(q) {
+    const direct = SHELF.filter((b) => matchBook(b, q));
 
     let related = [];
     if (direct.length && direct.length < 4) {
       const cats = new Set(direct.map((b) => b.cat));
-      const tags = new Set(direct.flatMap((b) => b.tags));
-      related = BOOKS.filter(
-        (b) => !direct.includes(b) && (cats.has(b.cat) || b.tags.some((t) => tags.has(t)))
+      const tags = new Set(direct.flatMap((b) => b.tags || []));
+      related = SHELF.filter(
+        (b) => !direct.includes(b) && (cats.has(b.cat) || (b.tags || []).some((t) => tags.has(t)))
       )
         .sort((a, b) => b.rating - a.rating)
         .slice(0, 4 - direct.length)
         .map((b) => Object.assign({}, b, { related: true }));
     }
-
-    state.results = direct.concat(related);
-
-    const sourceUsed = new Set();
-    state.results.forEach((b) => b.sources.forEach((s) => sourceUsed.add(s)));
-
-    if (state.results.length) {
-      els.summary.textContent = related.length
-        ? `找到 ${direct.length} 条精确结果 · 另有 ${related.length} 条相关推荐 · 用时 0.42 秒 · 来自 ${sourceUsed.size} 个书源`
-        : `找到 ${state.results.length} 条结果 · 用时 0.42 秒 · 来自 ${sourceUsed.size} 个书源`;
-    } else {
-      els.summary.textContent = `0 条结果 · 用时 0.42 秒 · 已检索 ${SOURCES.length} 个书源`;
-    }
-
-    renderResults();
+    return direct.concat(related).map(prepareLocal);
   }
 
-  function runSearch(raw) {
-    const q = raw.trim();
+  /* ---------- 检索 ---------- */
+  function scrollToResults() {
+    const top = els.results.getBoundingClientRect().top + window.scrollY - 88;
+    window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+  }
+
+  function fallbackToShelf(q, reason) {
+    state.offline = true;
+    state.took = 0;
+    state.books = searchShelf(q);
+    state.status = SOURCE_LIST.map((s) => ({ id: s.id, name: s.name, status: "offline", count: 0 }));
+    renderSourceStatus();
+    setSummary();
+    renderResults();
+    if (SHELF.length) toast("公开书源不可用，已切换离线书架" + (reason ? "（" + reason + "）" : ""));
+  }
+
+  async function runSearch(raw) {
+    const q = String(raw || "").trim();
     if (!q) {
       els.input.focus();
       toast("请输入书名、作者或关键词");
@@ -269,11 +349,16 @@
     state.query = q;
     state.filter = "全部";
     state.sort = "relevance";
+    state.books = [];
+    state.status = [];
+    state.offline = false;
 
     document.body.classList.add("has-searched");
     els.results.hidden = false;
     els.queryText.textContent = q;
     els.summary.textContent = "正在聚合检索…";
+    if (els.offlineNote) els.offlineNote.hidden = true;
+    if (els.sourceStatus) els.sourceStatus.innerHTML = "";
 
     document.querySelectorAll(".sort-btn").forEach((btn) => {
       btn.classList.toggle("is-active", btn.dataset.sort === "relevance");
@@ -283,107 +368,185 @@
     showLoading();
     scrollToResults();
 
-    clearTimeout(loadTimer);
-    loadTimer = setTimeout(() => {
-      clearInterval(progressTimer);
-      finishSearch();
-    }, 850);
+    clearInterval(progressTimer);
+
+    try {
+      const res = await fetchWithTimeout("/api/search?q=" + encodeURIComponent(q), 16000);
+      const type = res.headers.get("content-type") || "";
+      if (!res.ok || !/json/i.test(type)) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      if (!data || !Array.isArray(data.books)) throw new Error("bad payload");
+
+      state.books = data.books.map(prepareRemote);
+      state.status = Array.isArray(data.sources) ? data.sources : [];
+      state.took = data.took || 0;
+
+      renderSourceStatus();
+      setSummary();
+      renderResults();
+
+      if (!state.books.length) toast("这本书还没落在架上，换个关键词试试");
+
+      if (location.protocol.startsWith("http")) {
+        history.replaceState(null, "", "?q=" + encodeURIComponent(q));
+      }
+    } catch (err) {
+      const reason = /abort/i.test(String(err && err.message)) ? "请求超时" : "接口不可用";
+      fallbackToShelf(q, reason);
+      if (!SHELF.length) {
+        els.resultList.innerHTML = `
+          <div class="empty">
+            <span class="empty-mark">空</span>
+            <h3>暂时连不上公开书源</h3>
+            <p>请检查网络后重试，或稍后再来。</p>
+            <div class="empty-chips">
+              ${HOT.map((h) => `<button type="button" data-q="${esc(h)}">${esc(h)}</button>`).join("")}
+            </div>
+          </div>`;
+      }
+    } finally {
+      state.loading = false;
+    }
   }
 
   /* ---------- TXT ---------- */
-  function buildTxt(book) {
+  function buildMetaTxt(book) {
     const rule = "=".repeat(46);
     const thin = "-".repeat(46);
-    const excerpt = EXCERPTS[book.cat] || EXCERPTS["文学"];
-    const toc = CHAPTERS.map((c) => "  " + c).join("\n");
-
-    return `\ufeff${rule}
-                《${book.title}》
-                作者：${book.author}
-${rule}
-  分　　类：${book.cat}
-  字　　数：约 ${wordsText(book.words)}
-  文件大小：约 ${fileSize(book.words)}
-  豆瓣评分：${book.rating.toFixed(1)} / 10
-  出版年份：${book.year}
-  书　　源：${book.sources.join(" / ")}
-  检索时间：${nowText()}
-${thin}
-
-【内容简介】
-
-${book.blurb}
-
-${thin}
-
-【目　录】
-
-${toc}
-
-${thin}
-
-【正文 · 试读节选】
-
-${excerpt}
-
-${thin}
-由「墨库 MOKU LIBRARY」聚合导出。
-本文件为演示版试读片段，完整版本请前往对应书源获取。
-如有侵权，请联系删除。
-`;
+    const lines = [];
+    lines.push("\ufeff" + rule);
+    lines.push("《" + book.title + "》");
+    lines.push("作者：" + book.author);
+    lines.push(rule);
+    lines.push("  分　　类：" + book.cat);
+    if (book.year) lines.push("  出版年份：" + book.year);
+    if (book.pages) lines.push("  页　　数：" + book.pages);
+    if (book.rating) lines.push("  评　　分：" + book.rating.toFixed(1) + " / 10");
+    lines.push("  书　　源：" + book.sources.map((s) => s.name).join(" / "));
+    lines.push("  检索时间：" + nowText());
+    lines.push(thin);
+    lines.push("");
+    lines.push("【内容简介】");
+    lines.push("");
+    lines.push(book.blurb || "该书源未提供简介。");
+    lines.push("");
+    lines.push(thin);
+    lines.push("");
+    lines.push("【阅读原文】");
+    lines.push("");
+    book.sources.forEach((s) => {
+      if (s.site) lines.push(s.name + "：" + s.site);
+    });
+    if (book.link) lines.push("条目地址：" + book.link);
+    lines.push("");
+    lines.push(thin);
+    lines.push("由「墨库 MOKU LIBRARY」聚合导出。");
+    lines.push("书目信息来自公开书源，版权归原作者与书源所有。本文件不含未授权正文。");
+    if (book.demo) lines.push("（离线演示书目，非真实书源数据）");
+    return lines.join("\n") + "\n";
   }
 
-  function downloadBook(book, trigger) {
+  function saveText(text, filename) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  }
+
+  async function downloadBook(book, trigger) {
     if (!book || !trigger) return;
     const original = trigger.innerHTML;
     trigger.disabled = true;
     trigger.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" style="animation:spin 0.9s linear infinite"><path d="M12 4a8 8 0 1 0 8 8"/></svg> 生成中…`;
 
-    setTimeout(() => {
-      const text = buildTxt(book);
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `《${book.title}》 ${book.author} · 墨库.txt`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    let text = "";
+    let fullText = false;
 
+    if (book.txt) {
+      try {
+        const res = await fetchWithTimeout("/api/txt?u=" + encodeURIComponent(book.txt), 30000);
+        const type = res.headers.get("content-type") || "";
+        if (res.ok && !/html/i.test(type)) {
+          text = await res.text();
+          fullText = text.trim().length > 0;
+        }
+      } catch (e) { /* 落入书目信息兜底 */ }
+    }
+
+    try {
+      if (!fullText) text = buildMetaTxt(book);
+      const name = fullText
+        ? `《${book.title}》 ${book.author} · 全文.txt`
+        : `《${book.title}》 书目信息.txt`;
+      saveText(text, name);
+      toast(
+        fullText
+          ? `《${book.title}》全文 TXT 已保存（${Math.round(text.length / 1000)} 千字）`
+          : book.txt
+            ? "该书源暂无全文文本，已导出书目信息"
+            : "已导出书目信息 TXT（可从文末链接前往原文）"
+      );
+    } finally {
       trigger.disabled = false;
       trigger.innerHTML = original;
-      toast(`《${book.title}》 TXT 已下载 · ${fileSize(book.words)}`);
-    }, 560);
+    }
   }
 
-  /* ---------- modal ---------- */
+  /* ---------- 详情弹窗 ---------- */
   function openBook(book) {
     state.current = book;
     $("#modalCover").innerHTML = coverHTML(book);
-    $("#modalCat").textContent = book.cat + " · " + book.year;
+    $("#modalCat").textContent = book.cat + (book.year ? " · " + book.year : "");
     $("#modalTitle").textContent = book.title;
     $("#modalAuthor").textContent = book.author;
-    $("#modalBlurb").textContent = book.blurb;
-    $("#modalWords").textContent = "约 " + wordsText(book.words);
-    $("#modalRating").textContent = book.rating.toFixed(1) + " / 10";
-    $("#modalSize").textContent = "TXT " + fileSize(book.words);
-    $("#modalYear").textContent = book.year;
-    $("#modalSources").innerHTML = book.sources.map((s) => `<span class="src-chip">${esc(s)}</span>`).join("");
+    $("#modalBlurb").textContent = book.blurb || "该书源未提供简介。";
+    $("#modalWords").textContent = book.pages ? book.pages + " 页" : "未提供";
+    $("#modalRating").textContent = book.rating ? book.rating.toFixed(1) + " / 10" : "暂无评分";
+    $("#modalSize").textContent = book.txt ? "可下载全文" : "仅书目信息";
+    $("#modalYear").textContent = book.year ? String(book.year) : "—";
+    $("#modalSources").innerHTML = book.sources
+      .map((s) =>
+        s.site
+          ? `<a class="src-chip src-chip-link" href="${esc(s.site)}" target="_blank" rel="noopener">${esc(s.name)}</a>`
+          : `<span class="src-chip">${esc(s.name)}</span>`
+      )
+      .join("");
+
+    const link = $("#modalLink");
+    if (book.link) {
+      link.href = book.link;
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+      link.removeAttribute("href");
+    }
 
     const dl = $("#modalDownload");
     dl.disabled = false;
-    dl.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg> 下载 TXT`;
+    dl.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg> ${
+      book.txt ? "下载 TXT 全文" : "导出书目信息"
+    }`;
 
     els.bookModal.hidden = false;
     document.body.classList.add("no-scroll");
   }
 
   function openSources() {
-    els.sourceGrid.innerHTML = SOURCES.map(
-      (s) =>
-        `<div class="source-item${OFFLINE_SOURCES.includes(s) ? " is-off" : ""}"><span>${esc(s)}</span><i></i></div>`
-    ).join("");
+    const statusById = {};
+    state.status.forEach((s) => (statusById[s.id] = s.status));
+    els.sourceGrid.innerHTML = SOURCE_LIST.map((s) => {
+      const st = statusById[s.id];
+      const cls = st === "ok" ? "" : st ? " is-off" : "";
+      return `<a class="source-item${cls}" href="${esc(s.site)}" target="_blank" rel="noopener">
+        <span class="source-name">${esc(s.name)}<em>${esc(s.note)}</em></span>
+        <i></i>
+      </a>`;
+    }).join("");
     els.sourcesModal.hidden = false;
     document.body.classList.add("no-scroll");
   }
@@ -395,7 +558,7 @@ ${thin}
     }
   }
 
-  /* ---------- events ---------- */
+  /* ---------- 事件 ---------- */
   els.form.addEventListener("submit", (e) => {
     e.preventDefault();
     runSearch(els.input.value);
@@ -419,14 +582,14 @@ ${thin}
     btn.addEventListener("click", () => {
       state.sort = btn.dataset.sort;
       document.querySelectorAll(".sort-btn").forEach((b) => b.classList.toggle("is-active", b === btn));
-      if (state.results.length) renderResults();
+      if (state.books.length) renderResults();
     });
   });
 
   els.resultList.addEventListener("click", (e) => {
     const dl = e.target.closest("[data-dl]");
     if (dl) {
-      const book = BOOKS.find((b) => b.id === dl.dataset.dl);
+      const book = state.books.find((b) => b.id === dl.dataset.dl);
       downloadBook(book, dl);
       return;
     }
@@ -438,7 +601,7 @@ ${thin}
     }
     const row = e.target.closest(".result");
     if (row) {
-      const book = BOOKS.find((b) => b.id === row.dataset.id);
+      const book = state.books.find((b) => b.id === row.dataset.id);
       if (book) openBook(book);
     }
   });
@@ -468,8 +631,6 @@ ${thin}
   });
 
   /* default state */
-  els.input.value = "";
-
   const initialQ = new URLSearchParams(location.search).get("q");
   if (initialQ) {
     els.input.value = initialQ;
