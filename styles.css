@@ -1098,7 +1098,7 @@ body.no-scroll { overflow: hidden; }
 .modal-panel-flat .modal-body { padding-right: 10px; }
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px 22px;
   margin: 18px 0 20px;
 }
@@ -1157,6 +1157,92 @@ body.no-scroll { overflow: hidden; }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+
+/* ---------- 真实书源适配 ---------- */
+.cover img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.cover::before { z-index: 2; }
+.cover::after { z-index: 2; }
+
+.score-na { color: var(--line-2); font-size: 24px; }
+
+.source-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+}
+.src-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+.src-state i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--sage);
+  flex: none;
+}
+.src-state em {
+  font-style: normal;
+  color: var(--line-2);
+}
+.src-state.is-ok i { background: var(--sage); box-shadow: 0 0 0 3px rgba(107, 122, 99, 0.12); }
+.src-state.is-warn i { background: var(--red); box-shadow: 0 0 0 3px rgba(175, 59, 43, 0.14); }
+.src-state.is-off i { background: var(--line-2); }
+
+.offline-note {
+  margin: 12px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid rgba(175, 59, 43, 0.5);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.9;
+  color: var(--ink-3);
+}
+
+.source-item { align-items: flex-start; }
+.source-item:hover { color: var(--red); }
+.source-item:hover i { background: var(--red); }
+.source-name em {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+
+.src-chip-link { transition: color 0.2s, border-color 0.2s; }
+.src-chip-link:hover { color: var(--red); border-color: rgba(175, 59, 43, 0.45); }
+
+.modal-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--red);
+  border-bottom: 1px dotted rgba(175, 59, 43, 0.5);
+  padding-bottom: 2px;
+}
+.modal-link:hover { color: var(--red-2); border-bottom-color: var(--red-2); }
+.modal-link[hidden] { display: none; }
 
 /* ---------- animation ---------- */
 @keyframes rise {
