@@ -106,7 +106,7 @@ async function searchGutenberg(q) {
 async function searchOpenLibrary(q) {
   const fields = [
     "key", "title", "author_name", "first_publish_year", "cover_i", "subject",
-    "edition_count", "ia", "number_of_pages_median", "ratings_average", "publisher"
+    "edition_count", "ia", "number_of_pages_median", "language", "publisher"
   ].join(",");
   const data = await getJSON(
     "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) + "&limit=10&fields=" + fields,
@@ -122,7 +122,7 @@ async function searchOpenLibrary(q) {
       year: d.first_publish_year || null,
       cat: mapCat(subjects.slice(0, 5).join(" ")),
       tags: subjects.slice(0, 3),
-      rating: d.ratings_average ? Math.round(d.ratings_average * 20) / 10 : null,
+      rating: null,
       pages: d.number_of_pages_median || null,
       popularity: d.edition_count || 0,
       blurb: subjects.slice(0, 4).join(" · ") || "Open Library 收录的书目条目。",
@@ -135,7 +135,9 @@ async function searchOpenLibrary(q) {
 }
 
 async function searchArchive(q) {
-  const query = q + " AND mediatype:(texts)";
+  /* 只按书名/作者检索：archive 的全文匹配会把任何正文里出现过关键词的条目都带出来 */
+  const phrase = '"' + q.replace(/"/g, "") + '"';
+  const query = "(title:(" + phrase + ") OR creator:(" + phrase + ")) AND mediatype:(texts)";
   const fl = ["identifier", "title", "creator", "year", "language", "downloads", "subject"]
     .map((f) => "fl%5B%5D=" + f)
     .join("&");
@@ -211,6 +213,20 @@ function mergeKey(book) {
   return title + "|" + author.slice(0, 6);
 }
 
+/* 相关度：标题命中 > 作者命中 > 标签/简介命中 */
+function relevanceOf(book, q) {
+  const nq = norm(q);
+  if (!nq) return 0;
+  const title = norm(book.title);
+  const author = norm(book.author);
+  if (title === nq) return 8;
+  if (title.includes(nq)) return 6;
+  if (author.includes(nq)) return 4;
+  if (norm((book.tags || []).join(" ")).includes(nq)) return 2;
+  if (norm(book.blurb).includes(nq)) return 1;
+  return 0;
+}
+
 function mergeAll(list) {
   const map = new Map();
   list.forEach((book) => {
@@ -262,10 +278,12 @@ export async function onRequestGet(context) {
   const request = context.request;
   const url = new URL(request.url);
   const q = (url.searchParams.get("q") || "").trim().slice(0, 64);
+
   if (!q) return json({ error: "missing q" }, 400);
 
   const cache = caches.default;
   const cacheKey = new Request(url.toString(), { method: "GET" });
+
   try {
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
@@ -302,12 +320,17 @@ export async function onRequestGet(context) {
     }
   });
 
-  const books = mergeAll(collected).sort((a, b) => {
-    const ra = a.rating == null ? -1 : a.rating;
-    const rb = b.rating == null ? -1 : b.rating;
+  const scored = mergeAll(collected).map((book) => ({ book: book, score: relevanceOf(book, q) }));
+  const hit = scored.filter((it) => it.score > 0);
+  /* 相关结果足够多时，丢掉完全不相关的条目，避免长尾书把列表占满 */
+  const pool = hit.length >= 6 ? hit : scored;
+  const books = pool.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const ra = a.book.rating == null ? -1 : a.book.rating;
+    const rb = b.book.rating == null ? -1 : b.book.rating;
     if (rb !== ra) return rb - ra;
-    return (b.popularity || 0) - (a.popularity || 0);
-  });
+    return (b.book.popularity || 0) - (a.book.popularity || 0);
+  }).map((it) => it.book);
 
   const payload = {
     query: q,
