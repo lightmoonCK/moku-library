@@ -52,24 +52,17 @@
   const esc = (str) =>
     String(str == null ? "" : str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  const pad2 = (n) => String(n).padStart(2, "0");
-
-  const nowText = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  };
-
   const hashPalette = (str) => {
     let h = 0;
     for (let i = 0; i < String(str).length; i++) h = (h * 31 + String(str).charCodeAt(i)) % 8;
     return h + 1;
   };
 
-  function toast(msg) {
+  function toast(msg, ms) {
     els.toastText.textContent = msg;
     els.toast.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 3200);
+    toastTimer = setTimeout(() => els.toast.classList.remove("show"), ms || 3200);
   }
 
   function fetchWithTimeout(url, ms) {
@@ -276,7 +269,7 @@
           <div class="result-actions">
             <button type="button" class="download-btn" data-dl="${esc(book.id)}">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
-              ${book.txt ? "下载 TXT" : "导出书目"}
+              ${book.txt ? "下载 TXT" : "查找全文"}
             </button>
           </div>
         </article>`;
@@ -415,42 +408,6 @@
   }
 
   /* ---------- TXT ---------- */
-  function buildMetaTxt(book) {
-    const rule = "=".repeat(46);
-    const thin = "-".repeat(46);
-    const lines = [];
-    lines.push("\ufeff" + rule);
-    lines.push("《" + book.title + "》");
-    lines.push("作者：" + book.author);
-    lines.push(rule);
-    lines.push("  分　　类：" + book.cat);
-    if (book.year) lines.push("  出版年份：" + book.year);
-    if (book.pages) lines.push("  页　　数：" + book.pages);
-    if (book.rating) lines.push("  评　　分：" + book.rating.toFixed(1) + " / 10");
-    lines.push("  书　　源：" + book.sources.map((s) => s.name).join(" / "));
-    lines.push("  检索时间：" + nowText());
-    lines.push(thin);
-    lines.push("");
-    lines.push("【内容简介】");
-    lines.push("");
-    lines.push(book.blurb || "该书源未提供简介。");
-    lines.push("");
-    lines.push(thin);
-    lines.push("");
-    lines.push("【阅读原文】");
-    lines.push("");
-    book.sources.forEach((s) => {
-      if (s.site) lines.push(s.name + "：" + s.site);
-    });
-    if (book.link) lines.push("条目地址：" + book.link);
-    lines.push("");
-    lines.push(thin);
-    lines.push("由「墨库 MOKU LIBRARY」聚合导出。");
-    lines.push("书目信息来自公开书源，版权归原作者与书源所有。本文件不含未授权正文。");
-    if (book.demo) lines.push("（离线演示书目，非真实书源数据）");
-    return lines.join("\n") + "\n";
-  }
-
   function saveText(text, filename) {
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -532,20 +489,26 @@
       } catch (e) { /* 落入书目信息兜底 */ }
     }
 
+    /* 找不到全文时不再导出书目文件，只给出明确原因 */
+    if (!fullText) {
+      trigger.disabled = false;
+      trigger.innerHTML = original;
+      toast(
+        book.txt
+          ? `《${book.title}》的书源原件取不到正文，可能已下架或被限流，稍后可再试`
+          : `《${book.title}》没有可下载全文：该书仍在版权保护期，公开书源只提供书目`,
+        6000
+      );
+      return;
+    }
+
     try {
-      if (!fullText) text = buildMetaTxt(book);
-      const name = fullText
-        ? `《${book.title}》 ${book.author} · 全文.txt`
-        : `《${book.title}》 书目信息.txt`;
+      const name = `《${book.title}》 ${book.author} · 全文.txt`;
       saveText(text, name);
       toast(
-        fullText
-          ? viaLookup
-            ? `已检索到《${book.title}》全文（${Math.round(text.length / 1000)} 千字）`
-            : `《${book.title}》全文 TXT 已保存（${Math.round(text.length / 1000)} 千字）`
-          : book.txt
-            ? "该书源暂无全文文本，已导出书目信息"
-            : "各书源均未找到该书全文，已导出书目信息"
+        viaLookup
+          ? `已检索到《${book.title}》全文（${Math.round(text.length / 1000)} 千字）`
+          : `《${book.title}》全文 TXT 已保存（${Math.round(text.length / 1000)} 千字）`
       );
     } finally {
       trigger.disabled = false;
@@ -585,7 +548,7 @@
     const dl = $("#modalDownload");
     dl.disabled = false;
     dl.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg> ${
-      book.txt ? "下载 TXT 全文" : "导出书目信息"
+      book.txt ? "下载 TXT 全文" : "查找全文"
     }`;
 
     els.bookModal.hidden = false;
