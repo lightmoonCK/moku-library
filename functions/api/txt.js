@@ -8,6 +8,40 @@ const MAX_BYTES = 18 * 1024 * 1024;
 
 const CORS = { "access-control-allow-origin": "*" };
 
+const UA = { "user-agent": "MokuLibrary/1.0 (+https://moku-library.pages.dev)" };
+
+/* archive.org 的条目正文文件名并不统一（_djvu.txt / .txt / .txt.gz），
+ * 猜错文件名时会 404。这里读 metadata 接口，挑一个真实存在的正文文件。 */
+async function resolveArchiveText(target) {
+  const matched = /^\/download\/([^/]+)\//.exec(target.pathname);
+  if (!matched) return null;
+  const id = decodeURIComponent(matched[1]);
+
+  const meta = await fetch("https://archive.org/metadata/" + encodeURIComponent(id), {
+    headers: UA,
+    cf: { cacheTtl: 3600, cacheEverything: true }
+  });
+  if (!meta.ok) return null;
+
+  const data = await meta.json();
+  const files = (data.files || []).filter((f) => {
+    const name = String(f.name || "");
+    return /\.txt$/i.test(name) && !/_(meta|files|reviews|ch|scandata)/i.test(name.replace(/\.txt$/i, ""));
+  });
+  if (!files.length) return null;
+
+  const scored = files
+    .map((f) => ({ name: f.name, size: Number(f.size || 0) }))
+    .sort((a, b) => {
+      const da = /_djvu\.txt$/i.test(a.name) ? 1 : 0;
+      const db = /_djvu\.txt$/i.test(b.name) ? 1 : 0;
+      if (db !== da) return db - da;
+      return b.size - a.size;
+    });
+
+  return "https://archive.org/download/" + encodeURIComponent(id) + "/" + encodeURIComponent(scored[0].name);
+}
+
 function fail(message, status) {
   return new Response(JSON.stringify({ error: message }), {
     status: status || 400,
@@ -41,18 +75,24 @@ export async function onRequestGet(context) {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const timer = setTimeout(() => controller.abort(), 30000);
 
-  try {
-    const upstream = await fetch(target.toString(), {
-      headers: {
-        "user-agent": "MokuLibrary/1.0 (+https://moku-library.pages.dev)",
-        accept: "text/plain,*/*;q=0.8"
-      },
+  const doFetch = (link) =>
+    fetch(link, {
+      headers: Object.assign({ accept: "text/plain,*/*;q=0.8" }, UA),
       redirect: "follow",
       signal: controller.signal,
       cf: { cacheTtl: 3600, cacheEverything: true }
     });
+
+  try {
+    let upstream = await doFetch(target.toString());
+
+    /* 猜的正文文件名不存在时，去 metadata 里找真实文件重试一次 */
+    if (!upstream.ok && /archive\.org$/i.test(target.hostname)) {
+      const real = await resolveArchiveText(target);
+      if (real) upstream = await doFetch(real);
+    }
 
     if (!upstream.ok) return fail("upstream " + upstream.status, 404);
 
