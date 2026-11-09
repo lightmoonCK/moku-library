@@ -206,7 +206,7 @@ async function streamText(upstream, source) {
   const buffered = [];
   let head = "";
 
-  while (head.length < 4000) {
+  while (head.length < 12000) {
     const chunk = await reader.read();
     if (chunk.done) break;
     buffered.push(chunk.value);
@@ -215,7 +215,18 @@ async function streamText(upstream, source) {
 
   const boxes = (head.match(/[\u25A1\u25A0\uFFFD]/g) || []).length;
   const han = (head.match(/[\u4e00-\u9fff]/g) || []).length;
-  if (head.length >= 500 && boxes > 50 && boxes > han * 2) {
+
+  /* 连续汉字密度：OCR 质量差的扫描件每个字之间夹空格、夹杂拉丁噪声，
+   * 正常中文正文应接近 100%，低于 60% 基本读不懂。 */
+  let runChars = 0;
+  (head.match(/[\u4e00-\u9fff]{2,}/g) || []).forEach((run) => { runChars += run.length; });
+  const density = han > 0 ? runChars / han : 1;
+
+  const unreadable =
+    head.length >= 500 &&
+    ((boxes > 50 && boxes > han * 2) || (han >= 200 && density < 0.6));
+
+  if (unreadable) {
     return { response: null, garbage: true };
   }
 

@@ -433,12 +433,22 @@
     let text = "";
     let fullText = false;
     let viaLookup = false;
+    let lastError = "";
 
     /* 边收边解码：配合服务端流式输出，按钮上实时显示已下载体量 */
     const tryLoad = async (qs, ms) => {
       const res = await fetchWithTimeout("/api/txt?" + qs, ms);
       const type = res.headers.get("content-type") || "";
-      if (!res.ok || /html/i.test(type)) return "";
+      if (!res.ok || /html/i.test(type)) {
+        /* 服务端会说明具体原因（如扫描件识别失败），记下来给用户看 */
+        if (!/html/i.test(type)) {
+          try {
+            const data = await res.json();
+            if (data && data.error) lastError = String(data.error);
+          } catch (e) { /* 错误体不是 JSON 就保持静默 */ }
+        }
+        return "";
+      }
 
       if (!res.body || typeof res.body.getReader !== "function") {
         const body = await res.text();
@@ -499,9 +509,13 @@
       trigger.disabled = false;
       trigger.innerHTML = original;
       toast(
-        book.txt
-          ? `《${book.title}》的书源原件取不到正文，可能已下架或被限流，稍后可再试`
-          : `《${book.title}》没有可下载全文：该书仍在版权保护期，公开书源只提供书目`,
+        /未能识别出可读文本/.test(lastError)
+          ? `《${book.title}》只有扫描件，且扫描质量太差、识别不出可读文字，已放弃下载`
+          : /no fulltext found/.test(lastError)
+            ? `《${book.title}》在公开书源里没有可下载的全文，只有书目信息`
+            : book.txt
+              ? `《${book.title}》的书源原件取不到正文，可能已下架或被限流，稍后可再试`
+              : `《${book.title}》没有可下载全文：该书仍在版权保护期，公开书源只提供书目`,
         6000
       );
       return;
