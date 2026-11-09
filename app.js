@@ -25,8 +25,9 @@
   /* 与 functions/api/search.js 保持一致的书源清单 */
   const SOURCE_LIST = [
     { id: "gutenberg", name: "Project Gutenberg", site: "https://www.gutenberg.org", note: "公共领域全文 · 可直接下载 TXT" },
-    { id: "openlibrary", name: "Open Library", site: "https://openlibrary.org", note: "全球书目元数据 · 含馆藏与版本" },
+    { id: "openlibrary", name: "Open Library", site: "https://openlibrary.org", note: "全球书目元数据 · 含评分与页数" },
     { id: "archive", name: "Internet Archive", site: "https://archive.org", note: "扫描本 OCR 全文 · 覆盖中英文" },
+    { id: "wikisource", name: "中文维基文库", site: "https://zh.wikisource.org", note: "中文古籍与公版名篇全文 · 可直接下载" },
     { id: "googlebooks", name: "Google Books", site: "https://books.google.com", note: "书目、简介与读者评分" }
   ];
 
@@ -195,8 +196,12 @@
     }
     els.sourceStatus.innerHTML = state.status
       .map((s) => {
-        const cls = s.status === "ok" ? "is-ok" : s.status === "timeout" ? "is-warn" : "is-off";
-        const label = s.status === "ok" ? s.count + " 条" : s.status === "timeout" ? "超时" : "不可用";
+        const cls = s.status === "ok" ? "is-ok" : s.status === "timeout" || s.status === "quota" ? "is-warn" : "is-off";
+        const label =
+          s.status === "ok" ? s.count + " 条"
+            : s.status === "timeout" ? "超时"
+              : s.status === "quota" ? "配额受限"
+                : "不可用";
         return `<span class="src-state ${cls}"><i></i>${esc(s.name)}<em>${esc(label)}</em></span>`;
       })
       .join("");
@@ -239,7 +244,7 @@
         const idx = String(i + 1).padStart(3, "0");
         const facts = [];
         if (book.pages) facts.push(book.pages + " 页");
-        facts.push(book.txt ? "可下载全文" : "仅书目信息");
+        facts.push(book.txt ? "可下载全文" : "可检索全文");
         facts.push(book.sources.length + " 个书源");
 
         const chips = book.sources.slice(0, 3)
@@ -466,15 +471,35 @@
 
     let text = "";
     let fullText = false;
+    let viaLookup = false;
+
+    const tryLoad = async (qs, ms) => {
+      const res = await fetchWithTimeout("/api/txt?" + qs, ms);
+      const type = res.headers.get("content-type") || "";
+      if (res.ok && !/html/i.test(type)) {
+        const body = await res.text();
+        return body.trim().length > 0 ? body : "";
+      }
+      return "";
+    };
 
     if (book.txt) {
       try {
-        const res = await fetchWithTimeout("/api/txt?u=" + encodeURIComponent(book.txt), 30000);
-        const type = res.headers.get("content-type") || "";
-        if (res.ok && !/html/i.test(type)) {
-          text = await res.text();
-          fullText = text.trim().length > 0;
-        }
+        text = await tryLoad("u=" + encodeURIComponent(book.txt), 25000);
+        fullText = !!text;
+      } catch (e) { /* 落入下一步兜底 */ }
+    }
+
+    /* 该书源没给正文地址时，按书名+作者去 Internet Archive 兜底检索全文 */
+    if (!fullText && book.title) {
+      try {
+        text = await tryLoad(
+          "title=" + encodeURIComponent(book.title) +
+          "&author=" + encodeURIComponent(book.author && book.author !== "佚名" ? book.author : ""),
+          25000
+        );
+        fullText = !!text;
+        viaLookup = fullText;
       } catch (e) { /* 落入书目信息兜底 */ }
     }
 
@@ -486,10 +511,12 @@
       saveText(text, name);
       toast(
         fullText
-          ? `《${book.title}》全文 TXT 已保存（${Math.round(text.length / 1000)} 千字）`
+          ? viaLookup
+            ? `已从 Internet Archive 检索到《${book.title}》全文（${Math.round(text.length / 1000)} 千字）`
+            : `《${book.title}》全文 TXT 已保存（${Math.round(text.length / 1000)} 千字）`
           : book.txt
             ? "该书源暂无全文文本，已导出书目信息"
-            : "已导出书目信息 TXT（可从文末链接前往原文）"
+            : "各书源均未找到该书全文，已导出书目信息"
       );
     } finally {
       trigger.disabled = false;
@@ -507,7 +534,7 @@
     $("#modalBlurb").textContent = book.blurb || "该书源未提供简介。";
     $("#modalWords").textContent = book.pages ? book.pages + " 页" : "未提供";
     $("#modalRating").textContent = book.rating ? book.rating.toFixed(1) + " / 10" : "暂无评分";
-    $("#modalSize").textContent = book.txt ? "可下载全文" : "仅书目信息";
+    $("#modalSize").textContent = book.txt ? "可下载全文" : "可检索全文";
     $("#modalYear").textContent = book.year ? String(book.year) : "—";
     $("#modalSources").innerHTML = book.sources
       .map((s) =>

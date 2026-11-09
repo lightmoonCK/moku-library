@@ -8,6 +8,7 @@ const SOURCE_META = {
   gutenberg: { name: "Project Gutenberg", site: "https://www.gutenberg.org" },
   openlibrary: { name: "Open Library", site: "https://openlibrary.org" },
   archive: { name: "Internet Archive", site: "https://archive.org" },
+  wikisource: { name: "中文维基文库", site: "https://zh.wikisource.org" },
   googlebooks: { name: "Google Books", site: "https://books.google.com" }
 };
 
@@ -78,7 +79,7 @@ async function getJSON(url, timeout) {
 async function searchGutenberg(q) {
   const data = await getJSON(
     "https://gutendex.com/books/?search=" + encodeURIComponent(q),
-    9000
+    6000
   );
   return (data.results || []).slice(0, 10).map((b) => {
     const formats = b.formats || {};
@@ -106,15 +107,17 @@ async function searchGutenberg(q) {
 async function searchOpenLibrary(q) {
   const fields = [
     "key", "title", "author_name", "first_publish_year", "cover_i", "subject",
-    "edition_count", "ia", "number_of_pages_median", "language", "publisher"
+    "edition_count", "ia", "number_of_pages_median", "language", "publisher",
+    "ratings_average", "ratings_count", "first_sentence"
   ].join(",");
   const data = await getJSON(
     "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) + "&limit=10&fields=" + fields,
-    9000
+    6500
   );
   return (data.docs || []).map((d) => {
     const ia = Array.isArray(d.ia) ? d.ia[0] : null;
     const subjects = d.subject || [];
+    const firstSentence = Array.isArray(d.first_sentence) ? d.first_sentence[0] : d.first_sentence;
     return {
       id: "ol:" + String(d.key || "").replace("/works/", ""),
       title: d.title,
@@ -122,10 +125,11 @@ async function searchOpenLibrary(q) {
       year: d.first_publish_year || null,
       cat: mapCat(subjects.slice(0, 5).join(" ")),
       tags: subjects.slice(0, 3),
-      rating: null,
+      /* Open Library 评分是 5 分制，统一换算成站内 10 分制 */
+      rating: d.ratings_average ? Math.round(d.ratings_average * 20) / 10 : null,
       pages: d.number_of_pages_median || null,
-      popularity: d.edition_count || 0,
-      blurb: subjects.slice(0, 4).join(" · ") || "Open Library 收录的书目条目。",
+      popularity: d.ratings_count || d.edition_count || 0,
+      blurb: String(firstSentence || "").trim() || subjects.slice(0, 4).join(" · ") || "Open Library 收录的书目条目。",
       cover: d.cover_i ? "https://covers.openlibrary.org/b/id/" + d.cover_i + "-M.jpg" : null,
       txt: ia ? "https://archive.org/download/" + ia + "/" + ia + "_djvu.txt" : null,
       link: "https://openlibrary.org" + (d.key || ""),
@@ -144,7 +148,7 @@ async function searchArchive(q) {
   const data = await getJSON(
     "https://archive.org/advancedsearch.php?q=" + encodeURIComponent(query) + "&" + fl +
     "&rows=10&page=1&output=json",
-    11000
+    7000
   );
   const docs = (data && data.response && data.response.docs) || [];
   return docs.map((d) => {
@@ -171,11 +175,42 @@ async function searchArchive(q) {
   });
 }
 
+async function searchWikisource(q) {
+  const data = await getJSON(
+    "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
+      encodeURIComponent(q) + "&srlimit=8&srnamespace=0&format=json&formatversion=2",
+    6000
+  );
+  const hits = (data && data.query && data.query.search) || [];
+  return hits
+    .filter((h) => h && h.title)
+    .map((h) => {
+      const snippet = stripHtml(h.snippet).replace(/…+/g, "…");
+      const link = "https://zh.wikisource.org/wiki/" + encodeURIComponent(h.title);
+      return {
+        id: "ws:" + h.title,
+        title: h.title,
+        author: "佚名",
+        year: null,
+        cat: mapCat(h.title + " " + snippet),
+        tags: [],
+        rating: null,
+        pages: null,
+        popularity: Number(h.size) || 0,
+        blurb: snippet || "中文维基文库收录的公共领域文献，可直接下载全文。",
+        cover: null,
+        txt: link,
+        link: link,
+        source: SOURCE_META.wikisource
+      };
+    });
+}
+
 async function searchGoogleBooks(q, key) {
   let url = "https://www.googleapis.com/books/v1/volumes?q=" +
     encodeURIComponent(q) + "&maxResults=10&printType=books";
   if (key) url += "&key=" + encodeURIComponent(key);
-  const data = await getJSON(url, 9000);
+  const data = await getJSON(url, 6000);
   return (data.items || []).map((item) => {
     const v = item.volumeInfo || {};
     const links = v.imageLinks || {};
@@ -296,6 +331,7 @@ export async function onRequestGet(context) {
     ["gutenberg", () => searchGutenberg(q)],
     ["openlibrary", () => searchOpenLibrary(q)],
     ["archive", () => searchArchive(q)],
+    ["wikisource", () => searchWikisource(q)],
     ["googlebooks", () => searchGoogleBooks(q, key)]
   ];
 
@@ -315,7 +351,9 @@ export async function onRequestGet(context) {
       reports.push({ id: id, name: meta.name, site: meta.site, status: "ok", count: books.length });
     } else {
       const message = String((result.reason && result.reason.message) || "failed");
-      const status = /abort|timeout/i.test(message) ? "timeout" : "error";
+      let status = "error";
+      if (/abort|timeout/i.test(message)) status = "timeout";
+      else if (/HTTP 429/.test(message)) status = "quota";
       reports.push({ id: id, name: meta.name, site: meta.site, status: status, count: 0, error: message });
     }
   });
