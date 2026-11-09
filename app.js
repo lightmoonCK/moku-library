@@ -485,18 +485,18 @@
 
     if (book.txt) {
       try {
-        text = await tryLoad("u=" + encodeURIComponent(book.txt), 25000);
+        text = await tryLoad("u=" + encodeURIComponent(book.txt), 40000);
         fullText = !!text;
       } catch (e) { /* 落入下一步兜底 */ }
     }
 
-    /* 该书源没给正文地址时，按书名+作者去 Internet Archive 兜底检索全文 */
+    /* 该书源没给正文地址时，按书名+作者去 维基文库 / Internet Archive 兜底检索全文 */
     if (!fullText && book.title) {
       try {
         text = await tryLoad(
           "title=" + encodeURIComponent(book.title) +
           "&author=" + encodeURIComponent(book.author && book.author !== "佚名" ? book.author : ""),
-          25000
+          40000
         );
         fullText = !!text;
         viaLookup = fullText;

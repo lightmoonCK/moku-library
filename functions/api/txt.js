@@ -45,19 +45,16 @@ const normTitle = (s) =>
     .toLowerCase()
     .replace(/[《》「」『』〈〉【】_\-—·:：,，.。!！?？'"“”‘’()（）\[\]\s]/g, "");
 
-/* 按书名（可选作者）在 Internet Archive 找最匹配的文本条目 */
+/* 按书名（可选作者）在 Internet Archive 找最匹配的文本条目。
+ * 查询只走 title 索引（快），作者匹配在本地做——creator 短语查询带标点数字会把 archive 搜索拖死。 */
 async function findArchiveId(title, author, signal) {
   const cleanTitle = String(title || "").replace(/["“”]/g, "").trim();
   if (!cleanTitle) return null;
 
-  let q = 'title:("' + cleanTitle + '")';
-  const cleanAuthor = String(author || "").replace(/["“”]/g, "").replace(/佚名|unknown/i, "").trim();
-  if (cleanAuthor) q += ' AND creator:("' + cleanAuthor + '")';
-  q += " AND mediatype:(texts)";
-
+  const q = 'title:("' + cleanTitle + '") AND mediatype:(texts)';
   const link =
     "https://archive.org/advancedsearch.php?q=" + encodeURIComponent(q) +
-    "&fl%5B%5D=identifier&fl%5B%5D=title&rows=6&page=1&output=json";
+    "&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&rows=10&page=1&output=json";
 
   const res = await fetch(link, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
   if (!res.ok) return null;
@@ -67,18 +64,33 @@ async function findArchiveId(title, author, signal) {
   if (!docs.length) return null;
 
   const pickOf = (d) => (Array.isArray(d.identifier) ? d.identifier[0] : d.identifier);
-  const exact = docs.find((d) => {
-    const dt = Array.isArray(d.title) ? d.title[0] : d.title;
-    return normTitle(dt) === normTitle(cleanTitle);
-  });
-  return pickOf(exact || docs[0]) || null;
+  const titleOf = (d) => String(Array.isArray(d.title) ? d.title[0] : d.title || "");
+  const creatorOf = (d) => (Array.isArray(d.creator) ? d.creator : [d.creator]).filter(Boolean).join(" ");
+
+  /* 本地打分：标题规范化一致优先；给了作者时 creator 字段要能对上（双向包含，兼容 "Yu, Dafu, 1896-1945" 这类洋格式） */
+  const wantTitle = normTitle(cleanTitle);
+  const wantAuthor = normTitle(String(author || "").replace(/佚名|unknown/i, ""));
+  const scored = docs.map((d) => {
+    let s = 0;
+    if (normTitle(titleOf(d)) === wantTitle) s += 100;
+    else if (normTitle(titleOf(d)).includes(wantTitle)) s += 40;
+    if (wantAuthor) {
+      const got = normTitle(creatorOf(d));
+      if (got && (got.includes(wantAuthor) || wantAuthor.includes(got))) s += 30;
+    }
+    return { d: d, s: s };
+  }).sort((a, b) => b.s - a.s);
+
+  const best = scored[0];
+  if (!best || best.s < 40) return null;
+  return pickOf(best.d) || null;
 }
 
 /* 维基文库 / 维基百科：走 MediaWiki API 取正文并转纯文本 */
-async function fetchWikiText(pageName, base, signal) {
+async function fetchWikiText(pageName, base, signal, followRedirects) {
   const api =
     base + "/w/api.php?action=parse&page=" + encodeURIComponent(pageName) +
-    "&prop=text&format=json&formatversion=2&redirects=1";
+    "&prop=text&format=json&formatversion=2&redirects=" + (followRedirects === false ? "0" : "1");
   const res = await fetch(api, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
   if (!res.ok) return null;
 
@@ -88,9 +100,52 @@ async function fetchWikiText(pageName, base, signal) {
   return stripToText(html);
 }
 
+/* 按书名在中文维基文库找页面：先用 converttitles 做简繁标题精确转换，再用搜索严格匹配。
+ * 宁可返回 null 落回 archive.org，也不能拿相关度第一的错页面（如搜"狂人日记"给《呐喊》自序）。 */
+async function searchWikisourcePage(title, signal) {
+  const clean = String(title || "").replace(/["“”]/g, "").trim();
+  if (!clean) return null;
+
+  /* 1. 精确：converttitles 会把简体标题转成繁体并解析重定向，命中即有 pageid */
+  try {
+    const exactApi =
+      "https://zh.wikisource.org/w/api.php?action=query&titles=" + encodeURIComponent(clean) +
+      "&converttitles=1&redirects=1&format=json";
+    const res = await fetch(exactApi, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
+    if (res.ok) {
+      const data = await res.json();
+      const pages = (data && data.query && data.query.pages) || {};
+      const hit = Object.keys(pages)
+        .map((k) => pages[k])
+        .find((p) => p.missing == null && p.pageid != null && (p.ns === 0 || p.ns == null));
+      if (hit && hit.title) return hit.title;
+    }
+  } catch (e) { /* 落入搜索兜底 */ }
+
+  /* 2. 搜索兜底：只接受标题与书名互相包含的强匹配，不用相关度第一 */
+  try {
+    const searchApi =
+      "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" + encodeURIComponent(clean) +
+      "&srnamespace=0&srlimit=8&format=json";
+    const res = await fetch(searchApi, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hits = (data && data.query && data.query.search) || [];
+    const want = normTitle(clean);
+    const strong = hits.find((h) => {
+      const got = normTitle(h.title);
+      return got === want || (got.length >= 2 && want.includes(got)) || (want.length >= 2 && got.includes(want));
+    });
+    return strong && strong.title ? strong.title : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function stripToText(html) {
   return String(html)
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<[^>]+class="[^"]*(?:ws-noexport|noprint|mw-editsection)[^"]*"[^>]*>[\s\S]*?<\/(?:div|span|table)>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/?(p|div|li|tr|h[1-6]|blockquote|section)[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, "")
@@ -110,6 +165,14 @@ function fail(message, status) {
     status: status || 400,
     headers: Object.assign({}, CORS, { "content-type": "application/json; charset=utf-8" })
   });
+}
+
+/* 给上游调用加独立时限：挂起的请求到点返回 fallback，保证 Function 一定有响应，不拖死连接 */
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms))
+  ]);
 }
 
 function decode(buffer, contentType) {
@@ -142,7 +205,7 @@ export async function onRequestGet(context) {
   if (!raw && !title) return fail("missing u or title", 400);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  const timer = setTimeout(() => controller.abort(), 45000);
 
   const doFetch = (link) =>
     fetch(link, {
@@ -153,20 +216,31 @@ export async function onRequestGet(context) {
     });
 
   try {
-    /* ---------- 模式一：没有正文地址，按书名去 IA 兜底检索 ---------- */
+    /* ---------- 模式一：没有正文地址，按书名兜底检索（archive.org 单行本优先，维基文库做后路） ---------- */
     if (!raw && title) {
-      const id = await findArchiveId(title, author, controller.signal);
-      if (!id) return fail("no fulltext found", 404);
-      const real = await resolveArchiveText(id, controller.signal);
-      const link = real || "https://archive.org/download/" + encodeURIComponent(id) + "/" + encodeURIComponent(id) + "_djvu.txt";
-      const res = await doFetch(link);
-      if (!res.ok) return fail("no fulltext found", 404);
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > MAX_BYTES) return fail("file too large", 413);
-      const text = decode(buf, res.headers.get("content-type") || "")
-        .replace(/^\uFEFF/, "")
-        .replace(/\r\n?/g, "\n");
-      return textResponse(text, "archive.org");
+      const id = await withTimeout(findArchiveId(title, author, controller.signal), 12000, null);
+      if (id) {
+        const real = await withTimeout(resolveArchiveText(id, controller.signal), 8000, null);
+        const link = real || "https://archive.org/download/" + encodeURIComponent(id) + "/" + encodeURIComponent(id) + "_djvu.txt";
+        const res = await withTimeout(doFetch(link), 15000, null).catch(() => null);
+        if (res && res.ok) {
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength > MAX_BYTES) return fail("file too large", 413);
+          const text = decode(buf, res.headers.get("content-type") || "")
+            .replace(/^﻿/, "")
+            .replace(/\r\n?/g, "\n");
+          return textResponse(text, "archive.org");
+        }
+      }
+
+      /* archive 没有时落回维基文库；不跟随重定向，避免把集子页/目录页当正文（如《狂人日記》→《吶喊》） */
+      const page = await withTimeout(searchWikisourcePage(title, controller.signal), 10000, null);
+      if (page) {
+        const wikiText = await withTimeout(fetchWikiText(page, "https://zh.wikisource.org", controller.signal, false), 12000, null);
+        if (wikiText && wikiText.length > 1000) return textResponse(wikiText, "zh.wikisource.org");
+      }
+
+      return fail("no fulltext found", 404);
     }
 
     /* ---------- 模式二：直接正文地址 ---------- */

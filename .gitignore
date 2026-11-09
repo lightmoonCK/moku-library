@@ -7,6 +7,8 @@ moku-site.zip
 .edge/
 .vscode/
 .DS_Store
+.wrangler-home/
+.wrangler/
 
 # 临时文件
 *.log
