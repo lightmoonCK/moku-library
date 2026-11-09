@@ -467,20 +467,48 @@
     if (!book || !trigger) return;
     const original = trigger.innerHTML;
     trigger.disabled = true;
-    trigger.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" style="animation:spin 0.9s linear infinite"><path d="M12 4a8 8 0 1 0 8 8"/></svg> 生成中…`;
+
+    const setLoading = (label) => {
+      trigger.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" style="animation:spin 0.9s linear infinite"><path d="M12 4a8 8 0 1 0 8 8"/></svg> ${label}`;
+    };
+    setLoading("生成中…");
 
     let text = "";
     let fullText = false;
     let viaLookup = false;
 
+    /* 边收边解码：配合服务端流式输出，按钮上实时显示已下载体量 */
     const tryLoad = async (qs, ms) => {
       const res = await fetchWithTimeout("/api/txt?" + qs, ms);
       const type = res.headers.get("content-type") || "";
-      if (res.ok && !/html/i.test(type)) {
+      if (!res.ok || /html/i.test(type)) return "";
+
+      if (!res.body || typeof res.body.getReader !== "function") {
         const body = await res.text();
         return body.trim().length > 0 ? body : "";
       }
-      return "";
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let out = "";
+      let got = 0;
+      let lastPaint = 0;
+
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        got += chunk.value.length;
+        out += decoder.decode(chunk.value, { stream: true });
+
+        const now = Date.now();
+        if (now - lastPaint > 400) {
+          lastPaint = now;
+          setLoading("下载中 " + Math.max(1, Math.round(got / 1024)) + " KB…");
+        }
+      }
+      out += decoder.decode();
+
+      return out.trim().length > 0 ? out : "";
     };
 
     if (book.txt) {
@@ -492,6 +520,7 @@
 
     /* 该书源没给正文地址时，按书名+作者去 维基文库 / Internet Archive 兜底检索全文 */
     if (!fullText && book.title) {
+      setLoading("检索全文中…");
       try {
         text = await tryLoad(
           "title=" + encodeURIComponent(book.title) +
@@ -512,7 +541,7 @@
       toast(
         fullText
           ? viaLookup
-            ? `已从 Internet Archive 检索到《${book.title}》全文（${Math.round(text.length / 1000)} 千字）`
+            ? `已检索到《${book.title}》全文（${Math.round(text.length / 1000)} 千字）`
             : `《${book.title}》全文 TXT 已保存（${Math.round(text.length / 1000)} 千字）`
           : book.txt
             ? "该书源暂无全文文本，已导出书目信息"

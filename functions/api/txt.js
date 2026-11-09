@@ -196,6 +196,48 @@ function textResponse(text, source) {
   });
 }
 
+/* 边下边发：上游第一个字节到达就转发给用户，不必等整份文件读完。
+ * 大文件（archive.org 的 OCR 全文常有 2MB+）感知差异最大。 */
+function streamText(upstream, source) {
+  if (!upstream.body) return null;
+
+  let first = true;
+  let total = 0;
+  const body = upstream.body.pipeThrough(new TransformStream({
+    transform(chunk, ctrl) {
+      if (first) {
+        first = false;
+        /* 去掉 UTF-8 BOM，避免正文首字符变成乱码方块 */
+        if (chunk.length >= 3 && chunk[0] === 0xEF && chunk[1] === 0xBB && chunk[2] === 0xBF) {
+          chunk = chunk.subarray(3);
+        }
+      }
+      total += chunk.length;
+      if (total > MAX_BYTES) {
+        ctrl.error(new Error("file too large"));
+        return;
+      }
+      ctrl.enqueue(chunk);
+    }
+  }));
+
+  return new Response(body, {
+    status: 200,
+    headers: Object.assign({}, CORS, {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "public, max-age=86400",
+      "x-moku-source": source
+    })
+  });
+}
+
+/* 显式声明了非 UTF-8 编码时才需要整体解码；其余情况直接流式转发 */
+function needsFullDecode(contentType) {
+  const match = /charset=([a-z0-9_-]+)/i.exec(contentType || "");
+  if (!match) return false;
+  return !/^utf-?8$/i.test(match[1]);
+}
+
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const raw = url.searchParams.get("u");
@@ -224,9 +266,20 @@ export async function onRequestGet(context) {
         const link = real || "https://archive.org/download/" + encodeURIComponent(id) + "/" + encodeURIComponent(id) + "_djvu.txt";
         const res = await withTimeout(doFetch(link), 15000, null).catch(() => null);
         if (res && res.ok) {
+          const type = res.headers.get("content-type") || "";
+          if (/json|html/i.test(type) && !/text\/plain/i.test(type)) return fail("not a plain text file", 415);
+
+          const declared = Number(res.headers.get("content-length") || 0);
+          if (declared > MAX_BYTES) return fail("file too large", 413);
+
+          if (!needsFullDecode(type)) {
+            const streamed = streamText(res, "archive.org");
+            if (streamed) return streamed;
+          }
+
           const buf = await res.arrayBuffer();
           if (buf.byteLength > MAX_BYTES) return fail("file too large", 413);
-          const text = decode(buf, res.headers.get("content-type") || "")
+          const text = decode(buf, type)
             .replace(/^﻿/, "")
             .replace(/\r\n?/g, "\n");
           return textResponse(text, "archive.org");
@@ -282,6 +335,12 @@ export async function onRequestGet(context) {
 
     const declared = Number(upstream.headers.get("content-length") || 0);
     if (declared > MAX_BYTES) return fail("file too large", 413);
+
+    /* 先流式转发；非 UTF-8 明码声明时才退回整体解码 */
+    if (!needsFullDecode(type)) {
+      const streamed = streamText(upstream, target.hostname);
+      if (streamed) return streamed;
+    }
 
     const buffer = await upstream.arrayBuffer();
     if (buffer.byteLength > MAX_BYTES) return fail("file too large", 413);
