@@ -110,10 +110,19 @@ async function searchOpenLibrary(q) {
     "edition_count", "ia", "number_of_pages_median", "language", "publisher",
     "ratings_average", "ratings_count", "first_sentence"
   ].join(",");
-  const data = await getJSON(
-    "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) + "&limit=10&fields=" + fields,
-    6500
-  );
+  const url = "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) +
+    "&limit=10&fields=" + fields;
+  let data;
+  try {
+    data = await getJSON(url, 6500);
+  } catch (e) {
+    /* OL 对个别中文查询会返回 422（带 fields 时解析失败），去掉 fields 再试一次 */
+    if (!/HTTP 422/.test(String((e && e.message) || ""))) throw e;
+    data = await getJSON(
+      "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) + "&limit=10",
+      6500
+    );
+  }
   return (data.docs || []).map((d) => {
     const ia = Array.isArray(d.ia) ? d.ia[0] : null;
     const subjects = d.subject || [];
@@ -138,6 +147,11 @@ async function searchOpenLibrary(q) {
   });
 }
 
+/* 「CWFAP 中文网络小说存档计划」在 archive 上批量灌了几十万条番茄小说网文，
+ * 标题经常正好包含你要的书名（搜「沉沦」命中的《甘心沉沦》《无意沉沦》），
+ * 会把真正的书目整个挤掉，检索时直接剔除。 */
+const ARCHIVE_JUNK = /CWFAP|中文网络小说存档计划|番茄小说|网络小说存档|起点中文/i;
+
 async function searchArchive(q) {
   /* 只按书名/作者检索：archive 的全文匹配会把任何正文里出现过关键词的条目都带出来 */
   const phrase = '"' + q.replace(/"/g, "") + '"';
@@ -147,10 +161,13 @@ async function searchArchive(q) {
     .join("&");
   const data = await getJSON(
     "https://archive.org/advancedsearch.php?q=" + encodeURIComponent(query) + "&" + fl +
-    "&rows=10&page=1&output=json",
+    "&rows=30&page=1&output=json",
     7000
   );
-  const docs = (data && data.response && data.response.docs) || [];
+  const rawDocs = (data && data.response && data.response.docs) || [];
+  const docs = rawDocs.filter((d) => !ARCHIVE_JUNK.test([].concat(d.subject || [], d.collection || []).join(" ")));
+
+  const nq = norm(q);
   return docs.map((d) => {
     const id = d.identifier;
     const creator = Array.isArray(d.creator) ? d.creator.join(" / ") : d.creator;
@@ -172,7 +189,16 @@ async function searchArchive(q) {
       link: "https://archive.org/details/" + id,
       source: SOURCE_META.archive
     };
-  });
+  }).sort((a, b) => {
+    /* archive 自己的排序看下载量，会把书名更长的杂项排前面；这里按书名贴近程度重排 */
+    const ta = norm(a.title);
+    const tb = norm(b.title);
+    const ea = ta === nq ? 2 : ta.includes(nq) ? 1 : 0;
+    const eb = tb === nq ? 2 : tb.includes(nq) ? 1 : 0;
+    if (eb !== ea) return eb - ea;
+    if (ta.length !== tb.length) return ta.length - tb.length;
+    return (b.popularity || 0) - (a.popularity || 0);
+  }).slice(0, 10);
 }
 
 async function searchWikisource(q) {
@@ -180,7 +206,7 @@ async function searchWikisource(q) {
    * 对书库毫无意义。intitle: 限定后结果都是书名级页面。 */
   let data = await getJSON(
     "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
-      encodeURIComponent("intitle:" + q) + "&srlimit=8&srnamespace=0&format=json&formatversion=2",
+      encodeURIComponent("intitle:" + q) + "&srlimit=8&srnamespace=0&variant=zh-cn&format=json&formatversion=2",
     6000
   );
   let hits = (data && data.query && data.query.search) || [];
@@ -189,7 +215,7 @@ async function searchWikisource(q) {
   if (!hits.length) {
     data = await getJSON(
       "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
-        encodeURIComponent(q) + "&srlimit=8&srnamespace=0&format=json&formatversion=2",
+        encodeURIComponent(q) + "&srlimit=8&srnamespace=0&variant=zh-cn&format=json&formatversion=2",
       6000
     );
     hits = (data && data.query && data.query.search) || [];
