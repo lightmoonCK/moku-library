@@ -123,7 +123,10 @@
       const title = book.title.toLowerCase();
       if (title === t) s += 90;
       else if (title.includes(t)) s += 48;
-      if (book.author.toLowerCase().includes(t)) s += 34;
+      /* 搜作者名时，作者本人的书要排在「写某某的传记」前面 */
+      const authors = book.author.toLowerCase().split(/\s*[\/、,，;；]\s*/).filter(Boolean);
+      if (authors.includes(t)) s += 80;
+      else if (book.author.toLowerCase().includes(t)) s += 34;
       if (book.cat.toLowerCase().includes(t)) s += 20;
       if (book.tags.some((tag) => tag.toLowerCase().includes(t))) s += 14;
       if (book.year && String(book.year).includes(t)) s += 8;
