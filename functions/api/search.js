@@ -176,23 +176,49 @@ async function searchArchive(q) {
 }
 
 async function searchWikisource(q) {
-  const data = await getJSON(
+  /* 只按标题检索：维基文库默认是全库全文检索，会把判决书、集子章节等正文里含关键词的页面全翻出来，
+   * 对书库毫无意义。intitle: 限定后结果都是书名级页面。 */
+  let data = await getJSON(
     "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
-      encodeURIComponent(q) + "&srlimit=8&srnamespace=0&format=json&formatversion=2",
+      encodeURIComponent("intitle:" + q) + "&srlimit=8&srnamespace=0&format=json&formatversion=2",
     6000
   );
-  const hits = (data && data.query && data.query.search) || [];
+  let hits = (data && data.query && data.query.search) || [];
+
+  /* 标题检索无结果时退回全文检索，但仍过滤掉非书籍类页面 */
+  if (!hits.length) {
+    data = await getJSON(
+      "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
+        encodeURIComponent(q) + "&srlimit=8&srnamespace=0&format=json&formatversion=2",
+      6000
+    );
+    hits = (data && data.query && data.query.search) || [];
+  }
+
+  const NOT_A_BOOK = /判决书|裁定书|通知书|决定书|公告|条例|实施办法|批复|复函|会议纪要/;
+
   return hits
     .filter((h) => h && h.title)
+    /* 子页面（如《死魂靈/第一部/第六章》）和判决书类文书不是书，直接剔除 */
+    .filter((h) => !/[\/／]/.test(h.title) && !NOT_A_BOOK.test(h.title))
     .map((h) => {
+      /* 《銀灰色的死 (郁達夫)》 → 书名、作者分开 */
+      let title = h.title;
+      let author = "佚名";
+      const m = /^(.+?)\s*[（(]([^）)]{2,12})[）)]$/.exec(h.title);
+      if (m && !/\d/.test(m[2])) {
+        title = m[1].trim();
+        author = m[2].trim();
+      }
+
       const snippet = stripHtml(h.snippet).replace(/…+/g, "…");
       const link = "https://zh.wikisource.org/wiki/" + encodeURIComponent(h.title);
       return {
         id: "ws:" + h.title,
-        title: h.title,
-        author: "佚名",
+        title: title,
+        author: author,
         year: null,
-        cat: mapCat(h.title + " " + snippet),
+        cat: mapCat(title + " " + snippet),
         tags: [],
         rating: null,
         pages: null,

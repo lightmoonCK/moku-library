@@ -470,7 +470,12 @@
 
     if (book.txt) {
       try {
-        text = await tryLoad("u=" + encodeURIComponent(book.txt), 40000);
+        text = await tryLoad(
+          "u=" + encodeURIComponent(book.txt) +
+          "&title=" + encodeURIComponent(book.title || "") +
+          "&author=" + encodeURIComponent(book.author && book.author !== "佚名" ? book.author : ""),
+          40000
+        );
         fullText = !!text;
       } catch (e) { /* 落入下一步兜底 */ }
     }

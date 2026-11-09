@@ -197,38 +197,66 @@ function textResponse(text, source) {
 }
 
 /* 边下边发：上游第一个字节到达就转发给用户，不必等整份文件读完。
- * 大文件（archive.org 的 OCR 全文常有 2MB+）感知差异最大。 */
-function streamText(upstream, source) {
-  if (!upstream.body) return null;
+ * 同时先缓冲开头约 4000 字做质量抽查——扫描件 OCR 失败时正文全是 □，必须拦下。 */
+async function streamText(upstream, source) {
+  if (!upstream.body) return { response: null, garbage: false };
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const buffered = [];
+  let head = "";
+
+  while (head.length < 4000) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffered.push(chunk.value);
+    head += decoder.decode(chunk.value, { stream: true });
+  }
+
+  const boxes = (head.match(/[\u25A1\u25A0\uFFFD]/g) || []).length;
+  const han = (head.match(/[\u4e00-\u9fff]/g) || []).length;
+  if (head.length >= 500 && boxes > 50 && boxes > han * 2) {
+    return { response: null, garbage: true };
+  }
 
   let first = true;
-  let total = 0;
-  const body = upstream.body.pipeThrough(new TransformStream({
-    transform(chunk, ctrl) {
-      if (first) {
-        first = false;
-        /* 去掉 UTF-8 BOM，避免正文首字符变成乱码方块 */
-        if (chunk.length >= 3 && chunk[0] === 0xEF && chunk[1] === 0xBB && chunk[2] === 0xBF) {
-          chunk = chunk.subarray(3);
+  const body = new ReadableStream({
+    start(ctrl) {
+      buffered.forEach((chunk) => {
+        if (first) {
+          first = false;
+          /* 去掉 UTF-8 BOM，避免正文首字符变成乱码方块 */
+          if (chunk.length >= 3 && chunk[0] === 0xEF && chunk[1] === 0xBB && chunk[2] === 0xBF) {
+            chunk = chunk.subarray(3);
+          }
         }
-      }
-      total += chunk.length;
-      if (total > MAX_BYTES) {
-        ctrl.error(new Error("file too large"));
+        ctrl.enqueue(chunk);
+      });
+    },
+    async pull(ctrl) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        ctrl.close();
         return;
       }
-      ctrl.enqueue(chunk);
+      ctrl.enqueue(chunk.value);
+    },
+    cancel(reason) {
+      reader.cancel(reason);
     }
-  }));
-
-  return new Response(body, {
-    status: 200,
-    headers: Object.assign({}, CORS, {
-      "content-type": "text/plain; charset=utf-8",
-      "cache-control": "public, max-age=86400",
-      "x-moku-source": source
-    })
   });
+
+  return {
+    garbage: false,
+    response: new Response(body, {
+      status: 200,
+      headers: Object.assign({}, CORS, {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "public, max-age=86400",
+        "x-moku-source": source
+      })
+    })
+  };
 }
 
 /* 显式声明了非 UTF-8 编码时才需要整体解码；其余情况直接流式转发 */
@@ -267,22 +295,24 @@ export async function onRequestGet(context) {
         const res = await withTimeout(doFetch(link), 15000, null).catch(() => null);
         if (res && res.ok) {
           const type = res.headers.get("content-type") || "";
-          if (/json|html/i.test(type) && !/text\/plain/i.test(type)) return fail("not a plain text file", 415);
-
           const declared = Number(res.headers.get("content-length") || 0);
-          if (declared > MAX_BYTES) return fail("file too large", 413);
+          const plain = !/json|html/i.test(type) && declared <= MAX_BYTES;
+          let garbled = false;
 
-          if (!needsFullDecode(type)) {
-            const streamed = streamText(res, "archive.org");
-            if (streamed) return streamed;
+          if (plain && !needsFullDecode(type)) {
+            const checked = await streamText(res, "archive.org");
+            if (checked.response) return checked.response;
+            garbled = checked.garbage;
           }
 
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength > MAX_BYTES) return fail("file too large", 413);
-          const text = decode(buf, type)
-            .replace(/^﻿/, "")
-            .replace(/\r\n?/g, "\n");
-          return textResponse(text, "archive.org");
+          if (plain && !garbled) {
+            const buf = await res.arrayBuffer();
+            if (buf.byteLength > MAX_BYTES) return fail("file too large", 413);
+            const text = decode(buf, type)
+              .replace(/^﻿/, "")
+              .replace(/\r\n?/g, "\n");
+            return textResponse(text, "archive.org");
+          }
         }
       }
 
@@ -336,10 +366,19 @@ export async function onRequestGet(context) {
     const declared = Number(upstream.headers.get("content-length") || 0);
     if (declared > MAX_BYTES) return fail("file too large", 413);
 
-    /* 先流式转发；非 UTF-8 明码声明时才退回整体解码 */
-    if (!needsFullDecode(type)) {
-      const streamed = streamText(upstream, target.hostname);
-      if (streamed) return streamed;
+    /* 先流式转发；非 UTF-8 明码声明时才退回整体解码。首块抽查可拦下 OCR 失败的扫描件 */
+    const checked = needsFullDecode(type)
+      ? { response: null, garbage: false }
+      : await streamText(upstream, target.hostname);
+    if (checked.response) return checked.response;
+
+    if (checked.garbage) {
+      const fallback = await withTimeout(searchWikisourcePage(title, controller.signal), 10000, null);
+      if (fallback) {
+        const wikiText = await withTimeout(fetchWikiText(fallback, "https://zh.wikisource.org", controller.signal, false), 12000, null);
+        if (wikiText && wikiText.length > 1000) return textResponse(wikiText, "zh.wikisource.org");
+      }
+      return fail("该扫描件未能识别出可读文本，暂无可用全文", 422);
     }
 
     const buffer = await upstream.arrayBuffer();
