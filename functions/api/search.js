@@ -1,7 +1,7 @@
 /* 墨库 · 书源聚合检索（Cloudflare Pages Functions）
  * 路由：GET /api/search?q=关键词
  * 并行请求 Project Gutenberg / Open Library / Internet Archive /
- * 中文与英文维基文库 / 美国国会图书馆，
+ * 中文与英文维基文库，
  * 归一化字段、按书名+作者去重合并，任何单一书源超时或报错都不影响整体结果。
  */
 
@@ -10,8 +10,7 @@ const SOURCE_META = {
   openlibrary: { name: "Open Library", site: "https://openlibrary.org" },
   archive: { name: "Internet Archive", site: "https://archive.org" },
   wikisource: { name: "中文维基文库", site: "https://zh.wikisource.org" },
-  enwikisource: { name: "英文维基文库", site: "https://en.wikisource.org" },
-  loc: { name: "美国国会图书馆", site: "https://www.loc.gov" }
+  enwikisource: { name: "英文维基文库", site: "https://en.wikisource.org" }
 };
 
 const UA = {
@@ -264,36 +263,6 @@ async function searchWikisource(q, apiBase, meta, idPrefix) {
     });
 }
 
-/* 美国国会图书馆：免密钥 JSON API。只出书目与数字化条目链接，
- * 不直接提供 TXT——命中条目在下载阶段走 Internet Archive / 维基文库兜底检索全文。 */
-async function searchLoc(q) {
-  const data = await getJSON(
-    "https://www.loc.gov/books/?q=" + encodeURIComponent(q) + "&fo=json&c=10",
-    6500
-  );
-  return (data.results || []).map((r) => {
-    const subjects = Array.isArray(r.subject) ? r.subject : r.subject ? [r.subject] : [];
-    const contributors = Array.isArray(r.contributor) ? r.contributor : r.contributor ? [r.contributor] : [];
-    const description = Array.isArray(r.description) ? r.description[0] : r.description;
-    return {
-      id: "loc:" + String(r.id || r.url || r.title),
-      title: Array.isArray(r.title) ? r.title[0] : r.title,
-      author: contributors.join(" / ") || "佚名",
-      year: pickYear(r.date),
-      cat: mapCat(subjects.join(" ")),
-      tags: subjects.slice(0, 3),
-      rating: null,
-      pages: null,
-      popularity: Math.round(Number(r.score) || 0),
-      blurb: String(description || "").trim() || subjects.slice(0, 4).join(" · ") || "美国国会图书馆收录的书目条目。",
-      cover: null,
-      txt: null,
-      link: r.url || (Array.isArray(r.id) ? r.id[0] : r.id),
-      source: SOURCE_META.loc
-    };
-  });
-}
-
 /* ---------- 合并去重 ---------- */
 
 const norm = (s) => String(s || "")
@@ -391,8 +360,7 @@ export async function onRequestGet(context) {
     ["openlibrary", () => searchOpenLibrary(q)],
     ["archive", () => searchArchive(q)],
     ["wikisource", () => searchWikisource(q, "https://zh.wikisource.org", SOURCE_META.wikisource, "ws:")],
-    ["enwikisource", () => searchWikisource(q, "https://en.wikisource.org", SOURCE_META.enwikisource, "ews:")],
-    ["loc", () => searchLoc(q)]
+    ["enwikisource", () => searchWikisource(q, "https://en.wikisource.org", SOURCE_META.enwikisource, "ews:")]
   ];
 
   const settled = await Promise.allSettled(
