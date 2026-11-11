@@ -28,7 +28,8 @@
     { id: "openlibrary", name: "Open Library", site: "https://openlibrary.org", note: "全球书目元数据 · 含评分与页数" },
     { id: "archive", name: "Internet Archive", site: "https://archive.org", note: "扫描本 OCR 全文 · 覆盖中英文" },
     { id: "wikisource", name: "中文维基文库", site: "https://zh.wikisource.org", note: "中文古籍与公版名篇全文 · 可直接下载" },
-    { id: "googlebooks", name: "Google Books", site: "https://books.google.com", note: "书目、简介与读者评分" }
+    { id: "enwikisource", name: "英文维基文库", site: "https://en.wikisource.org", note: "英文公版名著全文 · 可直接下载" },
+    { id: "loc", name: "美国国会图书馆", site: "https://www.loc.gov", note: "英美书目与数字化善本 · 免密钥" }
   ];
 
   const HOT = ["三体", "东野圭吾", "红楼梦", "三毛", "science fiction"];

@@ -1,6 +1,7 @@
 /* 墨库 · 书源聚合检索（Cloudflare Pages Functions）
  * 路由：GET /api/search?q=关键词
- * 并行请求 Project Gutenberg / Open Library / Internet Archive / Google Books，
+ * 并行请求 Project Gutenberg / Open Library / Internet Archive /
+ * 中文与英文维基文库 / 美国国会图书馆，
  * 归一化字段、按书名+作者去重合并，任何单一书源超时或报错都不影响整体结果。
  */
 
@@ -9,7 +10,8 @@ const SOURCE_META = {
   openlibrary: { name: "Open Library", site: "https://openlibrary.org" },
   archive: { name: "Internet Archive", site: "https://archive.org" },
   wikisource: { name: "中文维基文库", site: "https://zh.wikisource.org" },
-  googlebooks: { name: "Google Books", site: "https://books.google.com" }
+  enwikisource: { name: "英文维基文库", site: "https://en.wikisource.org" },
+  loc: { name: "美国国会图书馆", site: "https://www.loc.gov" }
 };
 
 const UA = {
@@ -204,11 +206,12 @@ async function searchArchive(q) {
   }).slice(0, 10);
 }
 
-async function searchWikisource(q) {
+async function searchWikisource(q, apiBase, meta, idPrefix) {
   /* 只按标题检索：维基文库默认是全库全文检索，会把判决书、集子章节等正文里含关键词的页面全翻出来，
-   * 对书库毫无意义。intitle: 限定后结果都是书名级页面。 */
+   * 对书库毫无意义。intitle: 限定后结果都是书名级页面。
+   * variant=zh-cn 只作用于中文文库的标题/摘要转换；英文文库没有简繁转换器，该参数被忽略 */
   let data = await getJSON(
-    "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
+    apiBase + "/w/api.php?action=query&list=search&srsearch=" +
       encodeURIComponent("intitle:" + q) + "&srlimit=8&srnamespace=0&variant=zh-cn&format=json&formatversion=2",
     6000
   );
@@ -217,7 +220,7 @@ async function searchWikisource(q) {
   /* 标题检索无结果时退回全文检索，但仍过滤掉非书籍类页面 */
   if (!hits.length) {
     data = await getJSON(
-      "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" +
+      apiBase + "/w/api.php?action=query&list=search&srsearch=" +
         encodeURIComponent(q) + "&srlimit=8&srnamespace=0&variant=zh-cn&format=json&formatversion=2",
       6000
     );
@@ -241,9 +244,9 @@ async function searchWikisource(q) {
       }
 
       const snippet = stripHtml(h.snippet).replace(/…+/g, "…");
-      const link = "https://zh.wikisource.org/wiki/" + encodeURIComponent(h.title);
+      const link = apiBase + "/wiki/" + encodeURIComponent(h.title);
       return {
-        id: "ws:" + h.title,
+        id: idPrefix + h.title,
         title: title,
         author: author,
         year: null,
@@ -252,39 +255,41 @@ async function searchWikisource(q) {
         rating: null,
         pages: null,
         popularity: Number(h.size) || 0,
-        blurb: snippet || "中文维基文库收录的公共领域文献，可直接下载全文。",
+        blurb: snippet || meta.name + "收录的公共领域文献，可直接下载全文。",
         cover: null,
         txt: link,
         link: link,
-        source: SOURCE_META.wikisource
+        source: meta
       };
     });
 }
 
-async function searchGoogleBooks(q, key) {
-  let url = "https://www.googleapis.com/books/v1/volumes?q=" +
-    encodeURIComponent(q) + "&maxResults=10&printType=books";
-  if (key) url += "&key=" + encodeURIComponent(key);
-  const data = await getJSON(url, 6000);
-  return (data.items || []).map((item) => {
-    const v = item.volumeInfo || {};
-    const links = v.imageLinks || {};
-    const cover = links.thumbnail || links.smallThumbnail || null;
+/* 美国国会图书馆：免密钥 JSON API。只出书目与数字化条目链接，
+ * 不直接提供 TXT——命中条目在下载阶段走 Internet Archive / 维基文库兜底检索全文。 */
+async function searchLoc(q) {
+  const data = await getJSON(
+    "https://www.loc.gov/books/?q=" + encodeURIComponent(q) + "&fo=json&c=10",
+    6500
+  );
+  return (data.results || []).map((r) => {
+    const subjects = Array.isArray(r.subject) ? r.subject : r.subject ? [r.subject] : [];
+    const contributors = Array.isArray(r.contributor) ? r.contributor : r.contributor ? [r.contributor] : [];
+    const description = Array.isArray(r.description) ? r.description[0] : r.description;
     return {
-      id: "gb:" + item.id,
-      title: v.title || "",
-      author: (v.authors || []).join(" / ") || "佚名",
-      year: pickYear(v.publishedDate),
-      cat: mapCat((v.categories || []).join(" ")),
-      tags: (v.categories || []).slice(0, 3),
-      rating: v.averageRating ? Math.round(v.averageRating * 20) / 10 : null,
-      pages: v.pageCount || null,
-      popularity: v.ratingsCount || 0,
-      blurb: stripHtml(v.description) || "Google Books 收录书目。",
-      cover: cover ? String(cover).replace(/^http:/, "https:") : null,
+      id: "loc:" + String(r.id || r.url || r.title),
+      title: Array.isArray(r.title) ? r.title[0] : r.title,
+      author: contributors.join(" / ") || "佚名",
+      year: pickYear(r.date),
+      cat: mapCat(subjects.join(" ")),
+      tags: subjects.slice(0, 3),
+      rating: null,
+      pages: null,
+      popularity: Math.round(Number(r.score) || 0),
+      blurb: String(description || "").trim() || subjects.slice(0, 4).join(" · ") || "美国国会图书馆收录的书目条目。",
+      cover: null,
       txt: null,
-      link: v.infoLink || v.previewLink || null,
-      source: SOURCE_META.googlebooks
+      link: r.url || (Array.isArray(r.id) ? r.id[0] : r.id),
+      source: SOURCE_META.loc
     };
   });
 }
@@ -380,14 +385,14 @@ export async function onRequestGet(context) {
   } catch (e) { /* cache 不可用时忽略 */ }
 
   const started = Date.now();
-  const key = (context.env && context.env.GOOGLE_BOOKS_KEY) || "";
 
   const tasks = [
     ["gutenberg", () => searchGutenberg(q)],
     ["openlibrary", () => searchOpenLibrary(q)],
     ["archive", () => searchArchive(q)],
-    ["wikisource", () => searchWikisource(q)],
-    ["googlebooks", () => searchGoogleBooks(q, key)]
+    ["wikisource", () => searchWikisource(q, "https://zh.wikisource.org", SOURCE_META.wikisource, "ws:")],
+    ["enwikisource", () => searchWikisource(q, "https://en.wikisource.org", SOURCE_META.enwikisource, "ews:")],
+    ["loc", () => searchLoc(q)]
   ];
 
   const settled = await Promise.allSettled(
