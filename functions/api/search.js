@@ -110,18 +110,21 @@ async function searchOpenLibrary(q) {
     "edition_count", "ia", "number_of_pages_median", "language", "publisher",
     "ratings_average", "ratings_count", "first_sentence"
   ].join(",");
-  const url = "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) +
-    "&limit=10&fields=" + fields;
+  const base = "https://openlibrary.org/search.json?limit=10&fields=" + fields;
   let data;
   try {
-    data = await getJSON(url, 6500);
+    data = await getJSON(base + "&q=" + encodeURIComponent(q), 6500);
   } catch (e) {
-    /* OL 对个别中文查询会返回 422（带 fields 时解析失败），去掉 fields 再试一次 */
+    /* OL 对 2 字中文等短查询的 q= 通道直接 422（与 fields 无关，去掉 fields 一样 422）。
+     * 改走 title=/author= 参数通道重试，字段保持完整；两条都拿不到才放弃 */
     if (!/HTTP 422/.test(String((e && e.message) || ""))) throw e;
-    data = await getJSON(
-      "https://openlibrary.org/search.json?q=" + encodeURIComponent(q) + "&limit=10",
-      6500
-    );
+    const tries = await Promise.all([
+      getJSON(base + "&title=" + encodeURIComponent(q), 6000).catch(() => null),
+      getJSON(base + "&author=" + encodeURIComponent(q), 6000).catch(() => null)
+    ]);
+    const docs = tries.reduce((acc, d) => acc.concat((d && d.docs) || []), []);
+    if (!docs.length) throw e;
+    data = { docs: docs };
   }
   return (data.docs || []).map((d) => {
     const ia = Array.isArray(d.ia) ? d.ia[0] : null;

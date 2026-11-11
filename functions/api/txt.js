@@ -11,6 +11,8 @@ const CORS = { "access-control-allow-origin": "*" };
 
 const UA = { "user-agent": "MokuLibrary/1.0 (+https://moku-library.pages.dev)" };
 
+import { toSimplified } from "./_t2s.js";
+
 /* archive.org 的条目正文文件名并不统一（_djvu.txt / .txt / .txt.gz），
  * 猜错文件名时会 404。这里读 metadata 接口，挑一个真实存在的正文文件。 */
 async function resolveArchiveText(id, signal) {
@@ -97,7 +99,8 @@ async function fetchWikiText(pageName, base, signal, followRedirects) {
   const data = await res.json();
   const html = (data && data.parse && data.parse.text) || "";
   if (!html) return null;
-  return stripToText(html);
+  /* 维基文库原文是繁体（parse 接口不接受 variant 参数），用内置 OpenCC 映射表转简体 */
+  return toSimplified(stripToText(html));
 }
 
 /* 按书名在中文维基文库找页面：先用 converttitles 做简繁标题精确转换，再用搜索严格匹配。
