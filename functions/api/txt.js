@@ -7,6 +7,10 @@
 const ALLOWED_HOST = /^(?:[a-z0-9-]+\.)*(archive\.org|gutenberg\.org|openlibrary\.org|wikisource\.org|wikipedia\.org)$/i;
 const MAX_BYTES = 18 * 1024 * 1024;
 
+/* 与 search.js 的 ARCHIVE_JUNK 保持一致：CWFAP 等在 archive 上批量灌的网文存档，
+ * 标题常正好包含要查的书名（搜《沉沦》命中《禁欲沉沦》），检索全文时一样要剔除 */
+const ARCHIVE_JUNK = /CWFAP|中文网络小说存档计划|番茄小说|网络小说存档|起点中文/i;
+
 const CORS = { "access-control-allow-origin": "*" };
 
 const UA = { "user-agent": "MokuLibrary/1.0 (+https://moku-library.pages.dev)" };
@@ -56,35 +60,43 @@ async function findArchiveId(title, author, signal) {
   const q = 'title:("' + cleanTitle + '") AND mediatype:(texts)';
   const link =
     "https://archive.org/advancedsearch.php?q=" + encodeURIComponent(q) +
-    "&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&rows=10&page=1&output=json";
+    "&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=subject&fl%5B%5D=collection&rows=20&page=1&output=json";
 
   const res = await fetch(link, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
   if (!res.ok) return null;
 
   const data = await res.json();
-  const docs = (data && data.response && data.response.docs) || [];
+  let docs = (data && data.response && data.response.docs) || [];
+  docs = docs.filter((d) => !ARCHIVE_JUNK.test([].concat(d.subject || [], d.collection || []).join(" ")));
   if (!docs.length) return null;
 
   const pickOf = (d) => (Array.isArray(d.identifier) ? d.identifier[0] : d.identifier);
   const titleOf = (d) => String(Array.isArray(d.title) ? d.title[0] : d.title || "");
   const creatorOf = (d) => (Array.isArray(d.creator) ? d.creator : [d.creator]).filter(Boolean).join(" ");
 
-  /* 本地打分：标题规范化一致优先；给了作者时 creator 字段要能对上（双向包含，兼容 "Yu, Dafu, 1896-1945" 这类洋格式） */
-  const wantTitle = normTitle(cleanTitle);
-  const wantAuthor = normTitle(String(author || "").replace(/佚名|unknown/i, ""));
+  /* 本地打分：标题/作者先过繁转简再规范化——archive 上郁达夫《沉沦》常著录为《沉淪》，
+   * 不转简体连"标题包含"都匹配不上；作者按双向包含（兼容 "Yu, Dafu, 1896-1945" 洋格式） */
+  const wantTitle = normTitle(toSimplified(cleanTitle));
+  const wantAuthor = normTitle(toSimplified(String(author || "").replace(/佚名|unknown/i, "")));
   const scored = docs.map((d) => {
     let s = 0;
-    if (normTitle(titleOf(d)) === wantTitle) s += 100;
-    else if (normTitle(titleOf(d)).includes(wantTitle)) s += 40;
+    const gotTitle = normTitle(toSimplified(titleOf(d)));
+    const exact = gotTitle === wantTitle;
+    if (exact) s += 100;
+    else if (gotTitle.includes(wantTitle)) s += 40;
+    let authorHit = false;
     if (wantAuthor) {
-      const got = normTitle(creatorOf(d));
-      if (got && (got.includes(wantAuthor) || wantAuthor.includes(got))) s += 30;
+      const got = normTitle(toSimplified(creatorOf(d)));
+      authorHit = !!(got && (got.includes(wantAuthor) || wantAuthor.includes(got)));
+      if (authorHit) s += 30;
     }
-    return { d: d, s: s };
+    return { d: d, s: s, exact: exact, authorHit: authorHit };
   }).sort((a, b) => b.s - a.s);
 
+  /* 光有"标题沾边"（《禁欲沉沦》之于《沉沦》）不能算命中——
+   * 否则 2 字书名会下载到同名网文；必须标题全等或作者对得上 */
   const best = scored[0];
-  if (!best || best.s < 40) return null;
+  if (!best || (!best.exact && !best.authorHit)) return null;
   return pickOf(best.d) || null;
 }
 
