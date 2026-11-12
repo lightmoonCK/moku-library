@@ -116,7 +116,8 @@ async function fetchWikiText(pageName, base, signal, followRedirects) {
 }
 
 /* 按书名在中文维基文库找页面：先用 converttitles 做简繁标题精确转换，再用搜索严格匹配。
- * 宁可返回 null 落回 archive.org，也不能拿相关度第一的错页面（如搜"狂人日记"给《呐喊》自序）。 */
+ * 宁可返回 null 落回 archive.org，也不能拿相关度第一的错页面（如搜"狂人日记"给《呐喊》自序）。
+ * 匹配两侧必须都过繁转简：页面常著录为《沉淪》，搜"沉沦"不过简繁归一永远匹配不上。 */
 async function searchWikisourcePage(title, signal) {
   const clean = String(title || "").replace(/["“”]/g, "").trim();
   if (!clean) return null;
@@ -137,24 +138,27 @@ async function searchWikisourcePage(title, signal) {
     }
   } catch (e) { /* 落入搜索兜底 */ }
 
-  /* 2. 搜索兜底：只接受标题与书名互相包含的强匹配，不用相关度第一 */
-  try {
-    const searchApi =
-      "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" + encodeURIComponent(clean) +
-      "&srnamespace=0&srlimit=8&format=json";
-    const res = await fetch(searchApi, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const hits = (data && data.query && data.query.search) || [];
-    const want = normTitle(clean);
-    const strong = hits.find((h) => {
-      const got = normTitle(h.title);
-      return got === want || (got.length >= 2 && want.includes(got)) || (want.length >= 2 && got.includes(want));
-    });
-    return strong && strong.title ? strong.title : null;
-  } catch (e) {
-    return null;
+  /* 2. 搜索兜底：先 intitle（书名级结果），再全文检索；variant=zh-cn 让摘要按简体返回 */
+  const want = normTitle(toSimplified(clean));
+  const strongOf = (hits) => hits.find((h) => {
+    if (!h || !h.title) return false;
+    const got = normTitle(toSimplified(h.title));
+    return got === want || (got.length >= 2 && want.includes(got)) || (want.length >= 2 && got.includes(want));
+  });
+  for (const srsearch of ["intitle:" + clean, clean]) {
+    try {
+      const searchApi =
+        "https://zh.wikisource.org/w/api.php?action=query&list=search&srsearch=" + encodeURIComponent(srsearch) +
+        "&srnamespace=0&srlimit=8&variant=zh-cn&format=json";
+      const res = await fetch(searchApi, { headers: UA, signal: signal, cf: { cacheTtl: 3600, cacheEverything: true } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const hits = (data && data.query && data.query.search) || [];
+      const strong = strongOf(hits);
+      if (strong) return strong.title;
+    } catch (e) { /* 尝试下一种检索方式 */ }
   }
+  return null;
 }
 
 function stripToText(html) {
@@ -314,11 +318,12 @@ export async function onRequestGet(context) {
   try {
     /* ---------- 模式一：没有正文地址，按书名兜底检索（archive.org 单行本优先，维基文库做后路） ---------- */
     if (!raw && title) {
-      const id = await withTimeout(findArchiveId(title, author, controller.signal), 12000, null);
+      /* archive 猜测各环节收紧时限：外层 45s 还要留出维基文库兜底的时间，不能全耗在猜文件上 */
+      const id = await withTimeout(findArchiveId(title, author, controller.signal), 10000, null);
       if (id) {
-        const real = await withTimeout(resolveArchiveText(id, controller.signal), 8000, null);
+        const real = await withTimeout(resolveArchiveText(id, controller.signal), 6000, null);
         const link = real || "https://archive.org/download/" + encodeURIComponent(id) + "/" + encodeURIComponent(id) + "_djvu.txt";
-        const res = await withTimeout(doFetch(link), 15000, null).catch(() => null);
+        const res = await withTimeout(doFetch(link), 12000, null).catch(() => null);
         if (res && res.ok) {
           const type = res.headers.get("content-type") || "";
           const declared = Number(res.headers.get("content-length") || 0);
@@ -379,6 +384,14 @@ export async function onRequestGet(context) {
       if (matched) {
         const real = await resolveArchiveText(decodeURIComponent(matched[1]), controller.signal);
         if (real) upstream = await doFetch(real);
+      }
+    }
+
+    /* gutendex 给的 /ebooks/N.txt.utf-8 别名经常失效（404 或超时），直链是 /cache/epub/N/pgN.txt */
+    if (!upstream.ok && /gutenberg\.org$/i.test(target.hostname)) {
+      const matched = /^\/ebooks\/(\d+)/.exec(target.pathname);
+      if (matched) {
+        upstream = await doFetch("https://www.gutenberg.org/cache/epub/" + matched[1] + "/pg" + matched[1] + ".txt");
       }
     }
 
